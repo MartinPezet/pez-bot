@@ -104,6 +104,12 @@ describe('claude arguments', () => {
     expect(args.join(' ')).toContain('--json-schema {"type":"object"}')
     expect(args.slice(-3)).toEqual(['--allowedTools', 'Read', 'Bash(pnpm *)'])
   })
+
+  it('omits --allowedTools when there are no tools (the CLI rejects an empty list)', () => {
+    const args = claudeArgs({ prompt: 'p', cwd: '/', model: 'haiku', maxTurns: 1, timeoutMs: 1, allowedTools: [], permissionMode: 'dontAsk', env: {} })
+    expect(args).not.toContain('--allowedTools')
+    expect(args.at(-1)).toBe('--no-session-persistence')
+  })
 })
 
 describe('stop signals', () => {

@@ -59,7 +59,8 @@ export function claudeArgs(req: ClaudeRequest): string[] {
     '--no-session-persistence',
   ]
   if (req.jsonSchema) args.push('--json-schema', JSON.stringify(req.jsonSchema))
-  args.push('--allowedTools', ...req.allowedTools)
+  // The flag takes one or more values; with none the CLI rejects it ("argument missing").
+  if (req.allowedTools.length) args.push('--allowedTools', ...req.allowedTools)
   return args
 }
 

@@ -251,7 +251,9 @@ The runner shares your Pro plan with you, so every Claude job (propose, build, f
 **How usage is read.** There's no official API yet, so the `UsageGauge` combines:
 
 - **Passive:** every Claude run uses `--output-format stream-json`; each `rate_limit_event` is recorded. It's documented, but it often carries only a status (`allowed`, `allowed_warning`, `rejected`), with a utilisation figure only near a threshold.
-- **Probe:** `claude -p "/usage"` (a local command, no model call), parsed for the session and weekly percentages; if that fails, a one-turn Haiku call. The `/usage` output is human-readable text, so a wording change can break the parser. When that happens the digest says so (once), and with the default `USAGE_UNKNOWN_POLICY=allow` work continues, relying on the passive `rejected` handling as the safety net.
+- **Probe:** with no fresh reading, a one-turn Haiku call (one tiny request, at most once per `USAGE_MAX_AGE_MIN`) whose stream carries the same events. (`claude -p "/usage"` was tried and doesn't help: headless, it reports only the session's own cost and tokens, not plan limits.)
+
+In practice the percentages are often unknown until usage nears a threshold. The digest says so once per occurrence, and with the default `USAGE_UNKNOWN_POLICY=allow` work continues, relying on the passive `allowed_warning`/`rejected` handling as the safety net. Set `block` if you'd rather hold non-urgent work whenever usage is unknown.
 
 `pez-bot usage` shows the readings, gate state and windows. The rules apply to the runner only; nothing here ever limits your own use of Claude.
 
