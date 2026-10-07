@@ -81,7 +81,14 @@ docker compose up -d
 docker compose logs -f runner
 ```
 
-The image comes from your registry (`RUNNER_IMAGE`), or builds locally from `docker/Dockerfile`.
+That builds the image locally from `docker/Dockerfile`. **To deploy on a server**, use [`deploy/docker-compose.yml`](deploy/docker-compose.yml) instead: it pulls the image CI pushed to your registry, so the server only needs that file, `.env` and `secrets/`:
+
+```bash
+docker login <your-registry>
+docker compose pull && docker compose up -d
+```
+
+Set `RUNNER_IMAGE=<your-registry>/pez-bot:latest` in `.env` (or a specific `:<sha>` to pin or roll back).
 
 ### 5. Set up the target repo
 
