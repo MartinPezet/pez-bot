@@ -1,0 +1,73 @@
+name: pez-bot
+
+services:
+  runner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        TARGET_REPO: ${TARGET_REPO:-}
+    image: ${RUNNER_IMAGE:-pez-bot:local}
+    restart: unless-stopped
+    env_file: .env # copy .env.example
+    environment:
+      TEST_POSTGRES_URL: postgres://test:test@postgres-test:5432/app_test
+      TEST_REDIS_URL: redis://redis-test:6379
+    # For the egress firewall only; the runner process drops both before it starts.
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+    networks: [egress, testnet]
+    volumes:
+      - repo:/data/repo
+      - worktrees:/data/worktrees
+      - state:/data/state
+      - logs:/data/logs
+      - pnpm-store:/data/pnpm-store
+      - claude-install:/home/agent/.local
+      - claude-config:/home/agent/.claude
+      - ./secrets:/run/secrets:ro
+      # Never mount the Docker socket.
+    depends_on:
+      postgres-test: { condition: service_healthy }
+      redis-test: { condition: service_healthy }
+
+  # Test-only services on an internal network with no egress. Data lives in tmpfs and is
+  # reset before every build's gates anyway. Match the major versions to production.
+  postgres-test:
+    image: ${POSTGRES_TEST_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: app_test
+    tmpfs: [/var/lib/postgresql]
+    networks: [testnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d app_test"]
+      interval: 10s
+      retries: 10
+
+  redis-test:
+    image: ${REDIS_TEST_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [testnet]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 10
+
+networks:
+  egress: {}
+  testnet:
+    internal: true
+
+volumes:
+  repo: {}
+  worktrees: {}
+  state: {}
+  logs: {}
+  pnpm-store: {}
+  claude-install: {}
+  claude-config: {}
