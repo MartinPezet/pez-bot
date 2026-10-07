@@ -5,8 +5,9 @@ import { isUrgent, setState } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import {
   agentEnv, askClaude, block, FATAL_CLAUDE_ERRORS, gatesText, isPause, pause, pushAndOpenPr,
-  resetTestServices, runGates, stopSignal, sumCost,
+  resetTestServices, runGates, stopSignal, sumCost, testServiceProblems,
 } from './common.js'
+import { kv } from '../state/db.js'
 import type { Deps, JobResult } from './types.js'
 
 /** The approved change for an issue, or an archived one (a resumed run that already archived). */
@@ -27,6 +28,21 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   const n = issue.number
   const branch = `change/issue-${n}`
   const urgent = isUrgent(issue)
+
+  // A sidecar on the wrong major version isn't the issue's fault: hold builds (no state change) and say so once.
+  const problems = await testServiceProblems(d.run, d.env, d.project)
+  const reported = kv.get(d.db, 'testservices.problem')
+  if (problems.length) {
+    const text = problems.join('; ')
+    if (reported !== text) {
+      kv.set(d.db, 'testservices.problem', text)
+      d.log.error({ problems }, 'test services do not match the project config; builds are held')
+      d.digest.add('🧪', `Builds held: ${text}`)
+    }
+    return { outcome: 'skipped', detail: text }
+  }
+  if (reported) kv.del(d.db, 'testservices.problem')
+
   await setState(d.gh, issue, 'state:building')
 
   const { dir, resumed } = await d.wt.resume(branch)

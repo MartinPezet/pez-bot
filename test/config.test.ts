@@ -125,8 +125,22 @@ describe('project config', () => {
     expect(all).toMatch(/schedule\.sync: must be a valid cron expression/)
   })
 
-  it('refuses secrets in extraTestEnv', () => {
-    const r = parseProjectConfig(JSON.stringify({ ...minimalProject, extraTestEnv: { STRIPE_SECRET_KEY: 'x' } }))
-    expect(!r.ok && r.errors.join()).toMatch(/must not contain secrets/)
+  it('allows secret-sounding names with dummy values, but not real-looking credentials', () => {
+    const dummies = { APP_KEY: 'test-app-key-0123456789abcdef', POLAR_WEBHOOK_SECRET: 'test-webhook-secret', DB_PASSWORD: 'test' }
+    expect(parseProjectConfig(JSON.stringify({ ...minimalProject, extraTestEnv: dummies })).ok).toBe(true)
+    const real = parseProjectConfig(JSON.stringify({ ...minimalProject, extraTestEnv: { GH: `ghp_${'a'.repeat(36)}` } }))
+    expect(!real.ok && real.errors.join()).toMatch(/looks like a real credential/)
+  })
+
+  it('validates test service versions and variable mappings', () => {
+    const ok = parseProjectConfig(
+      JSON.stringify({
+        ...minimalProject,
+        testServices: { postgres: { version: '16', vars: { host: 'DB_HOST', password: 'DB_PASSWORD' } }, redis: { version: '7.2', vars: { port: 'REDIS_PORT' } } },
+      }),
+    )
+    expect(ok.ok).toBe(true)
+    const bad = parseProjectConfig(JSON.stringify({ ...minimalProject, testServices: { postgres: { version: 'latest', vars: { hostname: 'X' } } } }))
+    expect(!bad.ok && bad.errors.join('\n')).toMatch(/version: must be a version number[\s\S]*hostname/)
   })
 })

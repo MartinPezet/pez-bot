@@ -152,7 +152,11 @@ describe('build', () => {
     const r = await work(h.deps, { ignoreBudget: false })
     expect(r).toMatchObject({ outcome: 'ok', kind: 'build', issue: 9 })
     const lines = h.commandLines()
-    expect(lines[0]).toBe('pnpm install --frozen-lockfile')
+    expect(lines.slice(0, 3)).toEqual([
+      'psql postgres://test:test@postgres-test:5432/postgres -tAc SHOW server_version',
+      'redis-cli -u redis://redis-test:6379 INFO server',
+      'pnpm install --frozen-lockfile',
+    ])
     expect(lines.some(l => l.includes('DROP SCHEMA IF EXISTS "public" CASCADE'))).toBe(true)
     expect(lines).toContain('redis-cli -u redis://redis-test:6379 FLUSHALL')
     expect(lines.slice(-2)).toEqual(['pnpm typecheck', 'pnpm test'])
@@ -256,10 +260,49 @@ describe('build', () => {
     expect(h.claude.calls).toHaveLength(0)
   })
 
+  it('holds builds, without touching the issue, when a sidecar is the wrong version; reports once', async () => {
+    const h = harness()
+    approvedIssue(h)
+    h.script('psql postgres://test:test@postgres-test:5432/postgres -tAc SHOW server_version', { stdout: '15.6' })
+    expect(await work(h.deps, { ignoreBudget: false })).toMatchObject({ outcome: 'skipped', kind: 'build' })
+    await work(h.deps, { ignoreBudget: false })
+    expect(h.gh.issues[0]?.labels).toEqual(['state:approved'])
+    expect(h.digest.events.map(e => e.text)).toEqual([
+      'Builds held: test Postgres is 15.6 but testServices.postgres.version is 16: set POSTGRES_TEST_IMAGE=postgres:16-alpine in .env',
+    ])
+    expect(h.claude.calls).toHaveLength(0)
+  })
+
+  it('hands the connection to gates as separate variables when mapped', async () => {
+    const h = harness({
+      project: {
+        testServices: {
+          postgres: { version: '16', database: 'earth_scope_test', vars: { host: 'DB_HOST', port: 'DB_PORT', user: 'DB_USER', password: 'DB_PASSWORD', database: 'DB_DATABASE' } },
+          redis: { version: '7', vars: { host: 'REDIS_HOST', port: 'REDIS_PORT', password: 'REDIS_PASSWORD' } },
+        },
+      },
+    })
+    approvedIssue(h)
+    h.claude.then(applyCommits(h))
+    await work(h.deps, { ignoreBudget: false })
+    const gate = h.runs.find(x => x.cmd === 'pnpm' && x.args[0] === 'test')
+    expect(gate?.opts?.env).toMatchObject({
+      DATABASE_URL: 'postgres://test:test@postgres-test:5432/earth_scope_test',
+      DB_HOST: 'postgres-test',
+      DB_PORT: '5432',
+      DB_USER: 'test',
+      DB_PASSWORD: 'test',
+      DB_DATABASE: 'earth_scope_test',
+      REDIS_HOST: 'redis-test',
+      REDIS_PORT: '6379',
+      REDIS_PASSWORD: '',
+    })
+  })
+
   it('turns an unexpected error into a blocked issue and an error outcome', async () => {
     const h = harness()
     approvedIssue(h)
-    h.script('psql', { exitCode: 2, all: 'could not connect' })
+    h.script('psql postgres://test:test@postgres-test:5432/app_test', { exitCode: 2, all: 'could not connect' })
     h.claude.then(applyCommits(h))
     const r = await work(h.deps, { ignoreBudget: false })
     expect(r.outcome).toBe('error')

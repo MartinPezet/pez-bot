@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseProjectConfig } from '../src/config/project.js'
 import { applyMigration, migratePrd, MIGRATION_DIR, validateBacklog } from '../src/jobs/migrate.js'
-import { configTemplate, contextFilled, planScaffold, setup } from '../src/jobs/setup.js'
+import { configTemplate, contextFilled, detectCommands, planScaffold, setup } from '../src/jobs/setup.js'
 import { FakeGitHub } from './fakes.js'
 import { harness } from './jobs-harness.js'
 
@@ -17,6 +17,20 @@ describe('scaffolding', () => {
     const r = parseProjectConfig(configTemplate('acme/earthscope'))
     expect(r.ok).toBe(true)
     expect(r.ok && r.value).toMatchObject({ displayName: 'earthscope', allowedAuthors: ['acme'] })
+  })
+
+  it('detects the package manager and only lists scripts that exist', () => {
+    const h = harness()
+    const npm = path.join(h.root, 'npm')
+    write(npm, 'package-lock.json', '{}')
+    write(npm, 'package.json', JSON.stringify({ scripts: { typecheck: 'tsc', test: 'vitest' } }))
+    expect(detectCommands(npm)).toEqual({ install: ['npm', 'ci'], gates: [['npm', 'run', 'typecheck'], ['npm', 'test']] })
+    const pnpm = path.join(h.root, 'pnpm')
+    write(pnpm, 'pnpm-lock.yaml', '')
+    expect(detectCommands(pnpm)).toEqual({
+      install: ['pnpm', 'install', '--frozen-lockfile'],
+      gates: [['pnpm', 'run', 'typecheck'], ['pnpm', 'run', 'lint'], ['pnpm', 'run', 'test']],
+    })
   })
 
   it('plans every missing file on an empty repo', () => {

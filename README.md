@@ -226,9 +226,10 @@ Read from the target repo's default branch before every job and validated strict
 | `areas` | required | Allowed `area:` labels (lower-kebab-case). |
 | `wip.proposalsInReview`, `wip.prsInReview` | `3`, `3` | Open proposal/implementation PRs before the runner stops starting new ones. `urgent` doesn't bypass these. |
 | `maxFixAttempts` | `2` | Fix rounds after failing gates. |
-| `testServices.postgres` | | `{ "version": "16", "env": "DATABASE_URL", "database": "app_test", "schema": "public" }`: the env var gates receive, and what's reset before every build's gates. |
-| `testServices.redis` | | `{ "version": "7", "env": "REDIS_URL" }`: flushed before every build's gates. |
-| `extraTestEnv` | `{}` | Extra non-secret env vars for installs and gates. |
+| `testServices.postgres` | | `{ "version": "16", "env": "DATABASE_URL", "database": "app_test", "schema": "public" }`: the URL variable gates receive, and what's reset (schema dropped and recreated) before every build's gates. Optional `vars` also hands out the parts separately, for apps that don't read a URL: `{ "host": "DB_HOST", "port": "DB_PORT", "user": "DB_USER", "password": "DB_PASSWORD", "database": "DB_DATABASE" }` (any subset). |
+| `testServices.redis` | | `{ "version": "7", "env": "REDIS_URL" }`: flushed before every build's gates. Optional `vars`: `{ "host": …, "port": …, "password": … }`. |
+| `testServices.*.version` | | Production's major version. Before each build the runner checks the sidecar's actual version; on a mismatch builds are held (issues untouched), the digest says once what to set (`POSTGRES_TEST_IMAGE` / `REDIS_TEST_IMAGE`), and `setup` reports it. |
+| `extraTestEnv` | `{}` | Extra env vars for installs and gates (for example the dummy values your app's env validation requires). Any name is allowed, but values that look like real credentials (`ghp_…`, `sk-ant-…`, private keys, `user:pass@` URLs) are rejected: this file is committed, so use dummies. |
 | `timezone` | `Europe/London` | For windows, cron and the digest. |
 | `schedule` | | Cron overrides: `sync`, `summary`, `update`, `cleanup`. |
 | `allowedAuthors` | required | GitHub logins whose issues and comments the runner acts on. Everything else is ignored (and noted once in the digest). |
