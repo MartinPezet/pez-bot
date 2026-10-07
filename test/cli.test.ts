@@ -19,8 +19,15 @@ describe('cli', () => {
 
   it('refuses to run jobs with an invalid environment, and says why', async () => {
     quiet()
-    expect(await main(['sync'])).toBe(78)
-    expect(console.error).toHaveBeenCalledWith('env TARGET_REPO: required')
+    const dir = mkdtempSync(path.join(tmpdir(), 'pezbot-cli-'))
+    process.env.DATA_DIR = dir // the logger writes under DATA_DIR/logs
+    try {
+      expect(await main(['sync'])).toBe(78)
+      expect(console.error).toHaveBeenCalledWith('env TARGET_REPO: required')
+    } finally {
+      delete process.env.DATA_DIR
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('checks sub-command usage', async () => {
