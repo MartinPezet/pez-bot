@@ -11,7 +11,7 @@ import { BudgetGate } from './jobs/gate.js'
 import type { Gate } from './jobs/types.js'
 import { GitWorktrees } from './jobs/worktree.js'
 import { SqliteGauge } from './usage/gauge.js'
-import { haikuProbe, usageCommandProbe } from './usage/probe.js'
+import { haikuProbe } from './usage/probe.js'
 import type { Logger } from './log.js'
 import type { DB } from './state/db.js'
 import { makeHolder } from './state/lock.js'
@@ -90,6 +90,6 @@ export function createApp(ctx: Ctx, db: DB, env: Env): App {
       return login
     },
   }
-  gauge.setProbes([usageCommandProbe(ctx.run, probeEnv), haikuProbe(app.claude, probeEnv)])
+  gauge.setProbes([haikuProbe(app.claude, probeEnv)])
   return app
 }

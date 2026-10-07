@@ -6,7 +6,6 @@ import { finishRun, startRun } from '../src/state/jobs.js'
 import type { Probe } from '../src/usage/gauge.js'
 import { SqliteGauge } from '../src/usage/gauge.js'
 import type { Reading } from '../src/usage/passive.js'
-import { parseUsageText } from '../src/usage/probe.js'
 import { decide, viewFromReadings, type BudgetConfig } from '../src/usage/rules.js'
 import { estimateMinutes } from '../src/windows/estimate.js'
 import { silent, testEnv } from './jobs-harness.js'
@@ -179,29 +178,5 @@ describe('duration estimates', () => {
     expect(estimateMinutes(db, 'build')).toBe(40)
     add('build', 41)
     expect(estimateMinutes(db, 'build')).toBe(41) // (40 + 41) / 2 rounded up
-  })
-})
-
-describe('/usage text parsing', () => {
-  it('finds session and weekly percentages, skipping model-specific weekly limits', () => {
-    const text = [
-      'Current session',
-      '█████▌                 23% used',
-      'Resets 3pm (Europe/London)',
-      '',
-      'Current week (all models)',
-      '███████████            47% used',
-      '',
-      'Current week (Opus)',
-      '██                     8% used',
-    ].join('\n')
-    expect(parseUsageText(text, now).map(x => [x.bucket, x.utilization])).toEqual([
-      ['five_hour', 0.23],
-      ['seven_day', 0.47],
-    ])
-  })
-
-  it('returns nothing for text without usage figures', () => {
-    expect(parseUsageText('Not logged in · Please run /login', now)).toEqual([])
   })
 })
