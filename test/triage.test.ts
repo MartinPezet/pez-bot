@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { gatherTriage, triage, validateTriage, type TriageItem } from '../src/jobs/triage.js'
+import { gatherTriage, triage, triageJsonSchema, validateTriage, type TriageItem } from '../src/jobs/triage.js'
 import { harness } from './jobs-harness.js'
 
 const item = (number: number, kind: TriageItem['kind'] = 'new'): TriageItem => ({ kind, number, title: `T${number}`, body: '', labels: [], comments: [] })
 const labels = { type: 'feature', areas: ['core'], priority: 'p2', size: 'm' } as const
+
+describe('triage JSON schema for --json-schema', () => {
+  it('has no $schema (the CLI rejects the 2020-12 meta-schema) and uses draft-07 keywords', () => {
+    const s = triageJsonSchema() as Record<string, unknown>
+    expect(s.$schema).toBeUndefined()
+    expect(JSON.stringify(s)).not.toContain('2020-12')
+    expect(JSON.stringify(s)).not.toContain('$defs')
+    expect(s).toMatchObject({ type: 'object', required: ['items'] })
+  })
+})
 
 describe('triage output validation', () => {
   it('accepts valid entries', () => {

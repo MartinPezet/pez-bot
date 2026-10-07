@@ -142,8 +142,15 @@ export async function applyTriage(d: Deps, entries: TriageEntry[], issues: Issue
   return counts
 }
 
-/** Turns the JSON Schema into something `--json-schema` accepts. */
-const jsonSchema = () => z.toJSONSchema(triageOutputSchema, { io: 'input' }) as object
+/**
+ * The schema for `--json-schema`. Claude Code's validator rejects zod's default
+ * `"$schema": ".../draft/2020-12/schema"` ("no schema with key or ref"), so emit draft-07
+ * keywords and leave `$schema` out, letting the CLI use its default meta-schema.
+ */
+export function triageJsonSchema(): object {
+  const { $schema: _, ...schema } = z.toJSONSchema(triageOutputSchema, { io: 'input', target: 'draft-7' })
+  return schema
+}
 
 export async function triage(d: Deps, o: { ignoreBudget: boolean }): Promise<JobResult> {
   const { items, issues } = await gatherTriage(d)
@@ -164,7 +171,7 @@ export async function triage(d: Deps, o: { ignoreBudget: boolean }): Promise<Job
       2,
     ),
   })
-  const res = await askClaude(d, { model: 'triage', tools: 'triage', prompt, cwd: dir, urgent: false, ignoreBudget: o.ignoreBudget, jsonSchema: jsonSchema() })
+  const res = await askClaude(d, { model: 'triage', tools: 'triage', prompt, cwd: dir, urgent: false, ignoreBudget: o.ignoreBudget, jsonSchema: triageJsonSchema() })
   const cost = { estCostUsd: res.costUsd, turns: res.turns }
   if (isPause(res)) return { outcome: res.stopReason === 'deadline' ? 'checkpointed' : 'paused', detail: res.stopReason, worktree: dir, ...cost }
 
