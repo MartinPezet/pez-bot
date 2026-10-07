@@ -1,6 +1,6 @@
 import { createVerify, generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { appJwt, appProvider, checkGitHubAuth, patProvider } from '../src/github/auth.js'
+import { appJwt, appProvider, checkGitHubAuth, decodePem, patProvider } from '../src/github/auth.js'
 import { Redactor, REDACTED } from '../src/redact.js'
 
 describe('redaction', () => {
@@ -73,6 +73,13 @@ describe('GitHub App auth', () => {
     clock += 2 * 60_000
     expect(await p.token()).toBe('ghs_token2')
     expect(calls).toBe(2)
+  })
+
+  it('accepts the key as base64, raw PEM or a \\n-escaped single line', () => {
+    expect(decodePem(Buffer.from(pem).toString('base64'))).toBe(pem)
+    expect(decodePem(pem)).toBe(pem)
+    expect(decodePem(`"${pem.trim().replace(/\n/g, '\\n')}"`)).toBe(pem)
+    expect(() => decodePem('bm90IGEga2V5')).toThrow(/not a PEM private key/)
   })
 
   it('reports a failed token request clearly', async () => {

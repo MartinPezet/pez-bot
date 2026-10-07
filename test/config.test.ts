@@ -42,7 +42,7 @@ describe('env', () => {
     if (r.ok) return
     expect(r.errors).toContain('TARGET_REPO: must be owner/name')
     expect(loadEnv({}).ok || (loadEnv({}) as { errors: string[] }).errors).toContain('DIGEST_REPO: required')
-    expect(r.errors.some(e => e.includes('GH_APP_ID, GH_APP_INSTALLATION_ID and GH_APP_PRIVATE_KEY_FILE together'))).toBe(true)
+    expect(r.errors.some(e => e.includes('GH_APP_ID, GH_APP_INSTALLATION_ID and GH_APP_PRIVATE_KEY_FILE (or GH_APP_PRIVATE_KEY) together'))).toBe(true)
     expect(r.errors.some(e => e.includes('exactly one of CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY'))).toBe(true)
   })
 
@@ -52,6 +52,13 @@ describe('env', () => {
     const { GH_APP_ID, GH_APP_INSTALLATION_ID, GH_APP_PRIVATE_KEY_FILE, ...none } = baseEnv
     const r = loadEnv(none)
     expect(!r.ok && r.errors.some(e => e.includes('GitHub credentials missing'))).toBe(true)
+  })
+
+  it('accepts the App key inline instead of as a file, but not both', () => {
+    const { GH_APP_PRIVATE_KEY_FILE, ...inline } = baseEnv
+    expect(loadEnv({ ...inline, GH_APP_PRIVATE_KEY: 'LS0tLS1CRUdJTg==' }).ok).toBe(true)
+    const both = loadEnv({ ...baseEnv, GH_APP_PRIVATE_KEY: 'x' })
+    expect(!both.ok && both.errors.some(e => e.includes('not both'))).toBe(true)
   })
 
   it('rejects a hard stop below the weekly stop', () => {

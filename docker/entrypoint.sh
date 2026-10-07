@@ -21,7 +21,9 @@ if [ -n "${GH_APP_PRIVATE_KEY_FILE:-}" ]; then
   fi
   if setpriv --reuid=agent --regid=work --clear-groups test -r "$GH_APP_PRIVATE_KEY_FILE"; then
     echo "entrypoint: $GH_APP_PRIVATE_KEY_FILE is readable by the agent user." >&2
-    echo "entrypoint: on the host, run: sudo chown root:root <key> && sudo chmod 0400 <key>" >&2
+    echo "entrypoint: on a Linux host, run: sudo chown root:root <key> && sudo chmod 0400 <key>" >&2
+    echo "entrypoint: on Docker Desktop (Windows/macOS) file permissions can't be set: unset GH_APP_PRIVATE_KEY_FILE" >&2
+    echo "entrypoint: and put the key in .env as GH_APP_PRIVATE_KEY (base64 of the .pem) instead." >&2
     exit 1
   fi
   install -o runner -g runner -m 0400 "$GH_APP_PRIVATE_KEY_FILE" /run/runner/gh-app.pem
