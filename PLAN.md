@@ -242,3 +242,21 @@ As specified. Unit tests use fakes for `Git`, `GitHub`, `Claude`, `Clock` and `F
 6. **OpenSpec context:** `setup` scaffolds `openspec/config.yaml` `context:`. Prompts read it, and `project.md` too if present.
 7. **Claude Code channel:** `stable` by default (`CLAUDE_CHANNEL`).
 8. **Unknown usage:** `USAGE_UNKNOWN_POLICY` defaults to **`allow`**. Each time usage becomes unknown, the runner logs an error and posts a ⚠️ digest line once per occurrence, saying why (for example, the `/usage` probe couldn't be parsed). Passive `rejected`/warning handling stays the safety net.
+
+---
+
+## 9. Implementation notes (M2–M8 built, 2026-10-07)
+
+Where the build differs from or adds to the plan above:
+
+- **CI was pulled forward** into M2 (`.github/workflows/image.yml`), at your request.
+- **Agent umask:** sudo unions umasks, so agent-written files came out 0644/0755 and the runner couldn't commit or remove them. `sudoers.agent` now sets `umask=0002`.
+- **Dry run covers git too:** `DRY_RUN=1` also skips `git push` and remote branch deletion, since those are GitHub writes.
+- **The firewall allows DNS only to the resolvers in `/etc/resolv.conf`**, not just Docker's 127.0.0.11. That address is only present on user-defined networks; a plain `docker run` uses the host's resolver.
+- **The firewall is refreshed every 15 minutes** by a root loop in the entrypoint, not before every Claude job: the runner has no capabilities left to do it.
+- **Gate notes:** an urgent item that runs while the weekly gate is engaged is posted as 🚨.
+- **Work runs sync first**, so state is fresh before picking an item.
+- **Spikes are never proposed:** `type:spike` issues in `state:ready` are skipped by `work`, and triage forces spikes and `size:l` to `needs-decision`.
+- **Superpowers rollback** uninstalls the plugin, because plugins can't be pinned to a version.
+- **The `/usage` parser is unverified against real output.** The CLI on the dev machine wasn't logged in, so it's built from the documented behaviour plus a guessed format with fixture tests. If it fails in the container, the digest reports it once and `allow` keeps work going; send me the output of `pez-bot usage --probe` and I'll tune the parser.
+- **Schedule changes need a restart:** cron overrides in `.backlog-runner.json` are read at daemon start.

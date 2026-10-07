@@ -31,7 +31,12 @@ export class Redactor {
   deep(v: unknown, seen = new WeakSet<object>()): unknown {
     if (typeof v === 'string') return this.string(v)
     if (v instanceof Error) {
-      return { type: v.name, message: this.string(v.message), stack: v.stack ? this.string(v.stack) : undefined }
+      // Keep it an Error of the same class so log serializers still report its type.
+      const copy = Object.create(Object.getPrototypeOf(v) as object) as Error
+      Object.assign(copy, v)
+      copy.message = this.string(v.message)
+      copy.stack = v.stack ? this.string(v.stack) : undefined
+      return copy
     }
     if (v === null || typeof v !== 'object') return v
     if (seen.has(v)) return '[Circular]'

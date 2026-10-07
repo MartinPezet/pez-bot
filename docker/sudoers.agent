@@ -2,4 +2,6 @@
 # The runner always calls `sudo -n -u agent -H -- /usr/bin/env -i VAR=... cmd`,
 # so the agent's environment is exactly what the runner passes.
 Defaults:runner !requiretty, !lecture, env_reset
+# Group-writable files, so worktrees the agent writes can be committed and removed by runner.
+Defaults:runner umask=0002, umask_override
 runner ALL=(agent) NOPASSWD: ALL

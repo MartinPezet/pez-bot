@@ -6,6 +6,7 @@ export interface ProjectConfigState {
   ok: boolean
   errors: string[]
   displayName?: string
+  timezone?: string
   branch?: string
   checkedAt: string
 }
@@ -68,7 +69,7 @@ export function renderStatus(s: StatusData): string {
   for (const e of s.project?.errors ?? []) more(`✗ ${e}`)
 
   if (s.queue) row('Queue', Object.entries(s.queue).map(([k, v]) => `${k} ${v}`).join(' · '))
-  else row('Queue', '(not available yet)')
+  else row('Queue', '(unavailable)')
 
   if (s.current) {
     row('Job', `running ${s.current.job}${s.current.issue ? ` #${s.current.issue}` : ''} since ${fmt(s.current.started_at, s.tz)}`)
@@ -94,8 +95,8 @@ export function renderStatus(s: StatusData): string {
       more(`${pad(u.bucket, 10)} ${pad(pct, 8)} ${u.status ?? ''} (${u.source}, ${ago(u.at, s.now)}${reset})`)
     }
   }
-  row('Gate', s.gate ?? '(not available yet)')
-  row('Window', s.nextWindow ?? '(not available yet)')
+  row('Gate', s.gate ?? '(unavailable)')
+  row('Window', s.nextWindow ?? '(unavailable)')
 
   row('Disk', s.disk.freeGb === null ? 'unknown' : `${s.disk.freeGb.toFixed(1)} GB free (min ${s.disk.minGb})`)
 

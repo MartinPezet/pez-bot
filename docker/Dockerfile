@@ -49,6 +49,7 @@ RUN su agent -s /bin/bash -c "curl -fsSL https://claude.ai/install.sh | bash -s 
 COPY --from=build /src/node_modules /opt/runner/node_modules
 COPY --from=build /src/dist /opt/runner/dist
 COPY package.json /opt/runner/package.json
+COPY src/prompts /opt/runner/prompts
 COPY docker/ /opt/runner/docker/
 RUN install -m 0440 /opt/runner/docker/sudoers.agent /etc/sudoers.d/agent \
   && visudo -cf /etc/sudoers.d/agent \

@@ -81,6 +81,16 @@ export const kv = {
       'INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
     ).run(key, value, now.toISOString())
   },
+  del(db: DB, key: string): void {
+    db.prepare('DELETE FROM kv WHERE key = ?').run(key)
+  },
+  /** Keys with a prefix, for caches keyed by date or issue. */
+  keys(db: DB, prefix: string): { key: string; updated_at: string }[] {
+    return db.prepare("SELECT key, updated_at FROM kv WHERE key LIKE ? ESCAPE '\\'").all(`${prefix.replace(/[%_\\]/g, '\\$&')}%`) as {
+      key: string
+      updated_at: string
+    }[]
+  },
   getJson<T>(db: DB, key: string): T | undefined {
     const v = kv.get(db, key)
     return v === undefined ? undefined : (JSON.parse(v) as T)

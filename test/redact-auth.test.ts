@@ -27,8 +27,12 @@ describe('redaction', () => {
   it('redacts nested objects and errors without touching other values', () => {
     const r = new Redactor()
     r.add('very-secret-token')
-    const out = r.deep({ a: ['very-secret-token', 3], b: { c: null, d: true }, e: new Error('failed with very-secret-token') })
-    expect(out).toMatchObject({ a: [REDACTED, 3], b: { c: null, d: true }, e: { type: 'Error', message: `failed with ${REDACTED}` } })
+    class GateError extends Error {}
+    const out = r.deep({ a: ['very-secret-token', 3], b: { c: null, d: true }, e: new GateError('failed with very-secret-token') }) as Record<string, unknown>
+    expect(out).toMatchObject({ a: [REDACTED, 3], b: { c: null, d: true } })
+    expect(out.e).toBeInstanceOf(GateError)
+    expect((out.e as Error).message).toBe(`failed with ${REDACTED}`)
+    expect((out.e as Error).stack).not.toContain('very-secret-token')
   })
 
   it('survives cycles', () => {

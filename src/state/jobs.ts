@@ -22,12 +22,12 @@ export function startRun(db: DB, job: string, issue: number | null = null, now =
 export function finishRun(
   db: DB,
   id: number,
-  r: { outcome: Outcome; detail?: string; estCostUsd?: number; turns?: number; issue?: number },
+  r: { outcome: Outcome; detail?: string | undefined; estCostUsd?: number | undefined; turns?: number | undefined; issue?: number | undefined; kind?: string | undefined },
   now = new Date(),
 ): void {
   db.prepare(
-    'UPDATE job_runs SET ended_at = ?, outcome = ?, detail = ?, est_cost_usd = ?, turns = ?, issue = COALESCE(?, issue) WHERE id = ?',
-  ).run(now.toISOString(), r.outcome, r.detail ?? null, r.estCostUsd ?? null, r.turns ?? null, r.issue ?? null, id)
+    'UPDATE job_runs SET ended_at = ?, outcome = ?, detail = ?, est_cost_usd = ?, turns = ?, issue = COALESCE(?, issue), job = COALESCE(?, job) WHERE id = ?',
+  ).run(now.toISOString(), r.outcome, r.detail ?? null, r.estCostUsd ?? null, r.turns ?? null, r.issue ?? null, r.kind ?? null, id)
 }
 
 export const recentRuns = (db: DB, limit = 10): JobRun[] =>

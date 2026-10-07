@@ -3,8 +3,17 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { loadEnv } from './config/env.js'
+import { createApp, type App } from './app.js'
+import { applyMigration, migratePrd } from './jobs/migrate.js'
+import { runJob } from './jobs/runner.js'
+import { setup } from './jobs/setup.js'
+import type { JobResult } from './jobs/types.js'
+import { STATES, stateOf } from './github/labels.js'
+import { PAUSE_KEY } from './jobs/update.js'
+import { usageReport } from './usage/report.js'
 import { createContext, displayTz } from './context.js'
-import { daemon } from './daemon.js'
+import { isJobName, type JobName } from './jobs/registry.js'
+import { runDaemon, runNamed } from './scheduler.js'
 import { evaluateHealth, freeGb, readFirewall, type HealthInput } from './health.js'
 import { paths } from './paths.js'
 import { kv, openDb, type DB } from './state/db.js'
@@ -26,20 +35,6 @@ Usage: pez-bot <command> [options]
   updates resume              clear an update pause after a rollback
   usage [--probe]             gauge readings, gate state, window schedule
 `
-
-/** Commands that exist in the CLI surface but arrive in a later milestone. */
-const LATER: Record<string, number> = {
-  sync: 4,
-  work: 4,
-  summary: 4,
-  usage: 5,
-  triage: 6,
-  update: 7,
-  cleanup: 7,
-  updates: 7,
-  setup: 8,
-  'migrate-prd': 8,
-}
 
 const minFreeGb = () => {
   const env = loadEnv()
@@ -94,22 +89,36 @@ async function status(): Promise<number> {
       .prepare('SELECT at, component, from_version, to_version, outcome FROM updates ORDER BY id DESC LIMIT 5')
       .all() as UpdateRow[]
     const h = healthInput(db)
+    const project = kv.getJson<ProjectConfigState>(db, 'project.config') ?? null
+    const tz = project?.timezone ?? displayTz(ctx.env)
+    let queue: Record<string, number> | null = null
+    let report: { gate: string; window: string } | null = null
+    if (ctx.env.ok) {
+      const app = createApp(ctx, db, ctx.env.value)
+      report = usageReport(ctx.env.value, db, app.gauge, tz)
+      try {
+        const issues = await app.gh.listIssues()
+        queue = Object.fromEntries(STATES.map(s => [s.slice(6), issues.filter(i => stateOf(i) === s).length]))
+      } catch (e) {
+        console.error(`(queue unavailable: ${e instanceof Error ? e.message : String(e)})`)
+      }
+    }
     console.log(
       renderStatus({
         now: new Date(),
-        tz: displayTz(ctx.env),
+        tz,
         targetRepo: ctx.env.ok ? ctx.env.value.TARGET_REPO : (process.env.TARGET_REPO ?? null),
         envErrors: ctx.env.ok ? [] : ctx.env.errors,
-        project: kv.getJson<ProjectConfigState>(db, 'project.config') ?? null,
-        queue: null,
+        project,
+        queue,
         current: currentRun(db),
         lease: lockHolder(db),
         recent: recentRuns(db, 10),
         claudeVersion: version.exitCode === 0 ? version.stdout.trim() : null,
         updates,
         usage,
-        gate: null,
-        nextWindow: null,
+        gate: report?.gate ?? null,
+        nextWindow: report?.window ?? null,
         disk: { freeGb: h.freeGb, minGb: h.minFreeGb },
         health: evaluateHealth(h),
       }),
@@ -118,6 +127,91 @@ async function status(): Promise<number> {
   } finally {
     db.close()
   }
+}
+
+/** `updates resume`: clear the pause left by a rollback. */
+function updatesCmd(args: string[]): number {
+  if (args[0] !== 'resume') {
+    console.error('Usage: pez-bot updates resume')
+    return 64
+  }
+  const db = openDb(paths().db)
+  try {
+    const was = kv.get(db, PAUSE_KEY)
+    kv.del(db, PAUSE_KEY)
+    console.log(was ? `Update pause (until ${was}) cleared; the next update run will proceed.` : 'Updates were not paused.')
+    return 0
+  } finally {
+    db.close()
+  }
+}
+
+/** Gauge readings, gate state and the window schedule. `--probe` forces a fresh reading. */
+async function usage(args: string[]): Promise<number> {
+  const ctx = createContext()
+  if (!ctx.env.ok) {
+    for (const e of ctx.env.errors) console.error(`env ${e}`)
+    return 78
+  }
+  const db = openDb(ctx.paths.db)
+  try {
+    const app = createApp(ctx, db, ctx.env.value)
+    if (args.includes('--probe')) {
+      try {
+        const r = await app.gauge.probe()
+        kv.set(db, 'usage.last_probe', new Date().toISOString())
+        console.log(`Probe: ${r.map(x => `${x.bucket} ${x.utilization === null ? '?' : `${Math.round(x.utilization * 100)}%`} (${x.source})`).join(', ')}`)
+      } catch (e) {
+        console.log(`Probe failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    const tz = kv.getJson<ProjectConfigState>(db, 'project.config')?.timezone ?? displayTz(ctx.env)
+    console.log(usageReport(ctx.env.value, db, app.gauge, tz).text)
+    return 0
+  } finally {
+    db.close()
+  }
+}
+
+/** Runs one job now. Exit codes: 0 ok/noop, 1 error, 75 skipped (lease held or gate closed), 78 bad env. */
+async function withApp(name: string, fn: (app: App) => Promise<JobResult>): Promise<number> {
+  const ctx = createContext()
+  if (!ctx.env.ok) {
+    for (const e of ctx.env.errors) console.error(`env ${e}`)
+    return 78
+  }
+  const db = openDb(ctx.paths.db)
+  const app = createApp(ctx, db, ctx.env.value)
+  const onSignal = () => app.abort.abort()
+  process.once('SIGTERM', onSignal)
+  process.once('SIGINT', onSignal)
+  try {
+    const r = await fn(app)
+    const multiline = r.detail?.includes('\n')
+    console.log(`${name}: ${r.outcome}${r.kind && r.kind !== name ? ` (${r.kind})` : ''}${r.detail ? (multiline ? `\n${r.detail}` : ` — ${r.detail}`) : ''}`)
+    return r.outcome === 'error' ? 1 : r.outcome === 'skipped' ? 75 : 0
+  } finally {
+    db.close()
+  }
+}
+
+const oneShot = (name: JobName, args: string[]) =>
+  withApp(name, app => runNamed(app, name, { ignoreBudget: args.includes('--ignore-budget') }))
+
+const setupCmd = () =>
+  withApp('setup', app =>
+    runJob(app, 'setup', d => setup(d, { digestGh: app.digestGh, project: app.state.project, projectErrors: app.state.projectErrors }), {
+      system: true,
+    }),
+  )
+
+function migrateCmd(args: string[]): Promise<number> {
+  if (args.includes('--apply')) return withApp('migrate-prd --apply', app => runJob(app, 'migrate-apply', d => applyMigration(d)))
+  const i = args.indexOf('--path')
+  const prdPath = i >= 0 ? (args[i + 1] ?? 'PRD.md') : 'PRD.md'
+  return withApp('migrate-prd', app =>
+    runJob(app, 'migrate', d => migratePrd(d, { prdPath, ignoreBudget: args.includes('--ignore-budget') }), { claude: true }),
+  )
 }
 
 /**
@@ -157,14 +251,18 @@ export async function main(argv: string[]): Promise<number> {
       return healthcheck()
     case 'status':
       return status()
+    case 'usage':
+      return usage(argv.slice(1))
+    case 'updates':
+      return updatesCmd(argv.slice(1))
+    case 'setup':
+      return setupCmd()
+    case 'migrate-prd':
+      return migrateCmd(argv.slice(1))
     case 'daemon':
-      return daemon(createContext())
+      return runDaemon(createContext())
     default: {
-      const m = LATER[cmd]
-      if (m !== undefined) {
-        console.error(`"${cmd}" is not built yet (milestone ${m}).`)
-        return 2
-      }
+      if (isJobName(cmd)) return oneShot(cmd, argv.slice(1))
       console.error(`Unknown command "${cmd}".\n\n${HELP}`)
       return 64
     }

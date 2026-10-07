@@ -17,10 +17,15 @@ describe('cli', () => {
     expect(await main(['help'])).toBe(0)
   })
 
-  it('names the milestone for commands that are not built yet', async () => {
+  it('refuses to run jobs with an invalid environment, and says why', async () => {
     quiet()
-    expect(await main(['sync'])).toBe(2)
-    expect(console.error).toHaveBeenCalledWith('"sync" is not built yet (milestone 4).')
+    expect(await main(['sync'])).toBe(78)
+    expect(console.error).toHaveBeenCalledWith('env TARGET_REPO: required')
+  })
+
+  it('checks sub-command usage', async () => {
+    quiet()
+    expect(await main(['updates', 'pause'])).toBe(64)
   })
 
   it('rejects unknown commands', async () => {

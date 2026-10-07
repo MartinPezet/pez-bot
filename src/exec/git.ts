@@ -12,6 +12,8 @@ export class Git {
     readonly repoDir: string,
     private readonly token: () => Promise<string>,
     private readonly askpass: string,
+    /** GIT_AUTHOR_* / GIT_COMMITTER_* for the runner's own commits and merges. */
+    private readonly identity: Record<string, string> = {},
   ) {}
 
   private async authEnv(): Promise<Record<string, string>> {
@@ -19,7 +21,7 @@ export class Git {
   }
 
   async git(args: string[], opts: { cwd?: string; auth?: boolean } = {}): Promise<string> {
-    const env = opts.auth ? await this.authEnv() : { GIT_TERMINAL_PROMPT: '0' }
+    const env = { ...this.identity, ...(opts.auth ? await this.authEnv() : { GIT_TERMINAL_PROMPT: '0' }) }
     return must(this.runFn, 'git', args, { cwd: opts.cwd ?? this.repoDir, env })
   }
 

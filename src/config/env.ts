@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { formatIssues, type ParseResult } from '../result.js'
+import { parseWindows } from '../windows/windows.js'
 
 /** Account-level settings. These are env vars, not project config, because the usage budget is shared. */
 
@@ -33,7 +34,17 @@ export const envSchema = z
     WEEKLY_STOP_PCT: pct(80),
     WEEKLY_HARD_STOP_PCT: pct(95),
     FIVE_HOUR_START_MAX_PCT: pct(60),
-    RUN_WINDOWS: z.string().min(1).default('mon-fri 09:00-12:00; mon-fri 22:00-02:00'),
+    RUN_WINDOWS: z
+      .string()
+      .min(1)
+      .default('mon-fri 09:00-12:00; mon-fri 22:00-02:00')
+      .superRefine((v, ctx) => {
+        try {
+          parseWindows(v)
+        } catch (e) {
+          ctx.addIssue({ code: 'custom', message: (e as Error).message })
+        }
+      }),
     WINDOW_GRACE_MIN: int(20),
     URGENT_IGNORES_WINDOWS: bool(true),
     TZ: z.string().default('Europe/London'),
