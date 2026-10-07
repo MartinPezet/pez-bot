@@ -138,7 +138,9 @@ export function harness(o: { gate?: Gate; now?: Date; project?: Record<string, u
     runs.push({ cmd, args, opts })
     const line = [cmd, ...args].join(' ')
     const hit = scripted.find(([prefix]) => line.startsWith(prefix))
-    return { exitCode: 0, stdout: '', stderr: '', all: '', timedOut: false, ...(hit?.[1] ?? {}) }
+    // Sidecar version queries answer like the default compose images unless a test scripts them.
+    const defaults = line.includes('SHOW server_version') ? '16.4 (Debian 16.4-1)' : line.includes('INFO server') ? 'redis_version:7.2.4\r\n' : ''
+    return { exitCode: 0, stdout: defaults, stderr: '', all: defaults, timedOut: false, ...(hit?.[1] ?? {}) }
   }
   const project = projectSchema.parse({
     displayName: 'Demo',

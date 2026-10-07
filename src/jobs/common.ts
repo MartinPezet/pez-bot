@@ -37,10 +37,69 @@ export function agentEnv(d: Deps): Record<string, string> {
     ...d.project.extraTestEnv,
   }
   const pg = d.project.testServices.postgres
-  if (pg && e.TEST_POSTGRES_URL) env[pg.env] = withDatabase(e.TEST_POSTGRES_URL, pg.database)
+  if (pg && e.TEST_POSTGRES_URL) {
+    const url = withDatabase(e.TEST_POSTGRES_URL, pg.database)
+    env[pg.env] = url
+    Object.assign(env, urlVars(url, pg.vars ?? {}, '5432'))
+  }
   const redis = d.project.testServices.redis
-  if (redis && e.TEST_REDIS_URL) env[redis.env] = e.TEST_REDIS_URL
+  if (redis && e.TEST_REDIS_URL) {
+    env[redis.env] = e.TEST_REDIS_URL
+    Object.assign(env, urlVars(e.TEST_REDIS_URL, redis.vars ?? {}, '6379'))
+  }
   return env
+}
+
+/** The parts of a connection URL, under the variable names a project expects (e.g. host → DB_HOST). */
+export function urlVars(url: string, names: Partial<Record<'host' | 'port' | 'user' | 'password' | 'database', string>>, defaultPort: string) {
+  const u = new URL(url)
+  const parts = {
+    host: u.hostname,
+    port: u.port || defaultPort,
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: u.pathname.replace(/^\//, ''),
+  }
+  return Object.fromEntries(Object.entries(names).map(([part, name]) => [name, parts[part as keyof typeof parts]]))
+}
+
+const major = (v: string) => v.match(/\d+/)?.[0] ?? '?'
+
+/**
+ * The sidecars must match the project's production major versions (`testServices.*.version`).
+ * Returns what's wrong, with the fix; empty when everything matches.
+ */
+export async function testServiceProblems(run: Deps['run'], env: Deps['env'], project: Deps['project']): Promise<string[]> {
+  const problems: string[] = []
+  const pg = project.testServices.postgres
+  if (pg) {
+    if (!env.TEST_POSTGRES_URL) problems.push('testServices.postgres is set but TEST_POSTGRES_URL is not (compose sets it)')
+    else {
+      const r = await run('psql', [withDatabase(env.TEST_POSTGRES_URL, 'postgres'), '-tAc', 'SHOW server_version'])
+      if (r.exitCode !== 0) problems.push(`test Postgres unreachable: ${tail(r.all, 3)}`)
+      else if (major(r.stdout) !== major(pg.version)) {
+        problems.push(
+          `test Postgres is ${r.stdout.trim().split(' ')[0]} but testServices.postgres.version is ${pg.version}: ` +
+            `set POSTGRES_TEST_IMAGE=postgres:${major(pg.version)}-alpine in .env`,
+        )
+      }
+    }
+  }
+  const redis = project.testServices.redis
+  if (redis) {
+    if (!env.TEST_REDIS_URL) problems.push('testServices.redis is set but TEST_REDIS_URL is not (compose sets it)')
+    else {
+      const r = await run('redis-cli', ['-u', env.TEST_REDIS_URL, 'INFO', 'server'])
+      const actual = r.stdout.match(/redis_version:(\S+)/)?.[1]
+      if (r.exitCode !== 0 || !actual) problems.push(`test Redis unreachable: ${tail(r.all, 3)}`)
+      else if (major(actual) !== major(redis.version)) {
+        problems.push(
+          `test Redis is ${actual} but testServices.redis.version is ${redis.version}: set REDIS_TEST_IMAGE=redis:${major(redis.version)}-alpine in .env`,
+        )
+      }
+    }
+  }
+  return problems
 }
 
 /** Claude's own auth and update settings: the only secret an agent process ever receives. */

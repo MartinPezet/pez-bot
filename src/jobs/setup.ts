@@ -5,17 +5,45 @@ import { Digest, DigestSetupError } from '../digest/digest.js'
 import type { GitHub } from '../github/client.js'
 import { areaLabels, FIXED_LABELS } from '../github/labels.js'
 import { kv } from '../state/db.js'
+import { testServiceProblems } from './common.js'
 import type { JobResult, SysDeps } from './types.js'
 
 export const SCAFFOLD_BRANCH = 'setup/scaffold'
 
-export function configTemplate(repo: string): string {
+export interface Commands {
+  install: string[]
+  gates: string[][]
+}
+
+/** Install and gate commands from the repo's lockfile and root package.json scripts (pnpm when unknown). */
+export function detectCommands(dir: string): Commands {
+  const has = (f: string) => existsSync(path.join(dir, f))
+  const pm = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('package-lock.json') ? 'npm' : 'pnpm'
+  let scripts: string[] = []
+  try {
+    scripts = Object.keys((JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { scripts?: object }).scripts ?? {})
+  } catch {
+    // no package.json: keep the conventional names
+  }
+  const wanted = ['typecheck', 'lint', 'test'].filter(s => !scripts.length || scripts.includes(s))
+  return {
+    install: pm === 'npm' ? ['npm', 'ci'] : pm === 'yarn' ? ['yarn', 'install', '--immutable'] : ['pnpm', 'install', '--frozen-lockfile'],
+    gates: wanted.map(s => (pm === 'npm' && s === 'test' ? ['npm', 'test'] : [pm, 'run', s])),
+  }
+}
+
+const DEFAULT_COMMANDS: Commands = {
+  install: ['pnpm', 'install', '--frozen-lockfile'],
+  gates: [['pnpm', 'run', 'typecheck'], ['pnpm', 'run', 'lint'], ['pnpm', 'run', 'test']],
+}
+
+export function configTemplate(repo: string, commands: Commands = DEFAULT_COMMANDS): string {
   const [owner = 'OWNER', name = 'project'] = repo.split('/')
   return `${JSON.stringify(
     {
       displayName: name,
-      install: ['pnpm', 'install', '--frozen-lockfile'],
-      gates: [['pnpm', 'typecheck'], ['pnpm', 'lint'], ['pnpm', 'test']],
+      install: commands.install,
+      gates: commands.gates,
       areas: ['core'],
       wip: { proposalsInReview: 3, prsInReview: 3 },
       maxFixAttempts: 2,
@@ -90,7 +118,7 @@ export function planScaffold(dir: string, repo: string): ScaffoldPlan {
   const files: Record<string, string> = {}
   const notes: string[] = []
   const has = (f: string) => existsSync(path.join(dir, f))
-  if (!has(PROJECT_CONFIG_FILE)) files[PROJECT_CONFIG_FILE] = configTemplate(repo)
+  if (!has(PROJECT_CONFIG_FILE)) files[PROJECT_CONFIG_FILE] = configTemplate(repo, detectCommands(dir))
   if (!has('openspec')) {
     files['openspec/specs/.gitkeep'] = ''
     files['openspec/changes/.gitkeep'] = ''
@@ -142,6 +170,13 @@ export async function setup(d: SysDeps, o: SetupOptions): Promise<JobResult & { 
   } else {
     problems++
     report.push(`✗ ${PROJECT_CONFIG_FILE}: ${o.projectErrors.join('; ') || 'missing'}`)
+  }
+
+  if (o.project && (o.project.testServices.postgres || o.project.testServices.redis)) {
+    const found = await testServiceProblems(d.run, d.env, o.project)
+    for (const p of found) report.push(`✗ Test services: ${p}`)
+    if (!found.length) report.push('✓ Test services match testServices versions')
+    problems += found.length
   }
 
   const dir = await d.wt.fresh(SCAFFOLD_BRANCH)
