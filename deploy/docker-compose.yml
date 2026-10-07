@@ -1,0 +1,86 @@
+# Production stack for pez-bot: pulls the image CI pushed to your registry; no repo checkout needed.
+#
+# On the server, in a directory containing this file:
+#   .env                 copied from .env.example and filled in (set RUNNER_IMAGE)
+#   secrets/gh-app.pem   GitHub App key, owned by root with mode 0400 (if using the App)
+#
+#   docker login <your-registry>
+#   docker compose pull && docker compose up -d
+#   docker compose exec runner pez-bot status
+#
+# Update to a new image:  docker compose pull && docker compose up -d
+# Roll back:              set RUNNER_IMAGE=<registry>/pez-bot:<older sha> in .env, then up -d
+
+name: pez-bot
+
+services:
+  runner:
+    image: ${RUNNER_IMAGE:?set RUNNER_IMAGE in .env, e.g. registry.example.com/pez-bot:latest}
+    restart: unless-stopped
+    # Time to checkpoint a running Claude job (commit, push, requeue) on `docker compose down`.
+    stop_grace_period: 2m
+    env_file: .env
+    environment:
+      TEST_POSTGRES_URL: postgres://test:test@postgres-test:5432/app_test
+      TEST_REDIS_URL: redis://redis-test:6379
+    # For the egress firewall only; the runner process drops both before it starts.
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+    networks: [egress, testnet]
+    volumes:
+      - repo:/data/repo
+      - worktrees:/data/worktrees
+      - state:/data/state
+      - logs:/data/logs
+      - pnpm-store:/data/pnpm-store
+      - claude-install:/home/agent/.local
+      - claude-config:/home/agent/.claude
+      - ./secrets:/run/secrets:ro
+      # Never mount the Docker socket.
+    depends_on:
+      postgres-test: { condition: service_healthy }
+      redis-test: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "5" }
+
+  # Test-only services on an internal network with no egress, reset before every build's gates.
+  # Match the major versions to production with POSTGRES_TEST_IMAGE / REDIS_TEST_IMAGE.
+  postgres-test:
+    image: ${POSTGRES_TEST_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: app_test
+    tmpfs: [/var/lib/postgresql]
+    networks: [testnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d app_test"]
+      interval: 10s
+      retries: 10
+
+  redis-test:
+    image: ${REDIS_TEST_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [testnet]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 10
+
+networks:
+  egress: {}
+  testnet:
+    internal: true
+
+volumes:
+  repo: {}
+  worktrees: {}
+  state: {}
+  logs: {}
+  pnpm-store: {}
+  claude-install: {}
+  claude-config: {}
