@@ -78,9 +78,22 @@ export function appProvider(o: {
 
 export function tokenProviderFromEnv(env: Env): TokenProvider {
   if (env.GH_TOKEN) return patProvider(env.GH_TOKEN)
-  const pem = readFileSync(env.GH_APP_PRIVATE_KEY_FILE ?? '', 'utf8')
+  const pem = env.GH_APP_PRIVATE_KEY ? decodePem(env.GH_APP_PRIVATE_KEY) : readFileSync(env.GH_APP_PRIVATE_KEY_FILE ?? '', 'utf8')
   redactor.add(pem)
   return appProvider({ appId: env.GH_APP_ID ?? '', installationId: env.GH_APP_INSTALLATION_ID ?? '', pem })
+}
+
+/**
+ * GH_APP_PRIVATE_KEY accepts the base64 of the .pem file (one line, easiest in .env) or the PEM
+ * text itself, including the `\n`-escaped single-line form.
+ */
+export function decodePem(value: string): string {
+  const v = value.trim().replace(/^["']|["']$/g, '')
+  const pem = v.includes('-----BEGIN') ? v.replace(/\\n/g, '\n') : Buffer.from(v, 'base64').toString('utf8')
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+-----END [A-Z ]*PRIVATE KEY-----/.test(pem)) {
+    throw new Error('GH_APP_PRIVATE_KEY is not a PEM private key (expected the base64 of the .pem file, or its text)')
+  }
+  return pem.endsWith('\n') ? pem : `${pem}\n`
 }
 
 /** Cheap credential check used by the daemon (cached for the health check). */

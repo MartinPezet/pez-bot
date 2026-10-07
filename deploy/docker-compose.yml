@@ -2,7 +2,8 @@
 #
 # On the server, in a directory containing this file:
 #   .env                 copied from .env.example and filled in (set RUNNER_IMAGE)
-#   secrets/gh-app.pem   GitHub App key, owned by root with mode 0400 (if using the App)
+#   secrets/gh-app.pem   GitHub App key, owned by root with mode 0400 (Linux hosts using the App).
+#                        On Docker Desktop (Windows/macOS) use GH_APP_PRIVATE_KEY in .env instead.
 #
 #   docker login <your-registry>
 #   docker compose pull && docker compose up -d

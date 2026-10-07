@@ -57,6 +57,14 @@ Labels are the state machine. PR merges are the only approvals.
 
   The container refuses to start if the agent user could read it.
 
+  **On Docker Desktop (Windows or macOS)** bind-mounted files always look world-readable inside the container, so the key file can't pass that check. Put the key in `.env` instead, base64-encoded on one line, and leave `GH_APP_PRIVATE_KEY_FILE` empty. In PowerShell:
+
+  ```powershell
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes("gh-app.pem"))
+  ```
+
+  Paste the output as `GH_APP_PRIVATE_KEY=…`. The key then lives only in the root and runner processes' environment, which the agent user can't read.
+
 PRs and comments then appear as `your-app[bot]`, and you review and merge them as yourself.
 
 **Classic PAT (fallback).** Create a bot user, add it as a collaborator on both repos, and give it a classic PAT with the `repo` scope. Set `GH_TOKEN`. Fine-grained PATs don't work for a bot that is only a collaborator on a personal repo.
@@ -174,6 +182,7 @@ Account-level settings live in `.env`, not in project config, because the usage 
 |---|---|---|
 | `TARGET_REPO` | image build arg | `owner/name` of the repo to work on. Overrides the value baked into the image. |
 | `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, `GH_APP_PRIVATE_KEY_FILE` | | GitHub App auth (all three). |
+| `GH_APP_PRIVATE_KEY` | | The App key inline (base64 of the `.pem`), instead of `GH_APP_PRIVATE_KEY_FILE`. Use on Docker Desktop. |
 | `GH_TOKEN` | | Classic PAT, instead of the App. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | | From `claude setup-token`. |
 | `ANTHROPIC_API_KEY` | | Instead of the OAuth token. |

@@ -21,6 +21,8 @@ export const envSchema = z
     GH_APP_ID: z.string().regex(/^\d+$/, 'must be numeric').optional(),
     GH_APP_INSTALLATION_ID: z.string().regex(/^\d+$/, 'must be numeric').optional(),
     GH_APP_PRIVATE_KEY_FILE: z.string().min(1).optional(),
+    /** The App key itself (base64 of the .pem, or the PEM text): for hosts where files can't be made private, e.g. Docker Desktop on Windows. */
+    GH_APP_PRIVATE_KEY: secret,
     CLAUDE_CODE_OAUTH_TOKEN: secret,
     ANTHROPIC_API_KEY: secret,
     DIGEST_REPO: repo,
@@ -66,8 +68,9 @@ export const envSchema = z
   })
   .superRefine((e, ctx) => {
     const fail = (message: string) => ctx.addIssue({ code: 'custom', message })
-    const app = [e.GH_APP_ID, e.GH_APP_INSTALLATION_ID, e.GH_APP_PRIVATE_KEY_FILE].filter(Boolean).length
-    if (app > 0 && app < 3) fail('GitHub App auth needs GH_APP_ID, GH_APP_INSTALLATION_ID and GH_APP_PRIVATE_KEY_FILE together')
+    if (e.GH_APP_PRIVATE_KEY_FILE && e.GH_APP_PRIVATE_KEY) fail('set either GH_APP_PRIVATE_KEY_FILE or GH_APP_PRIVATE_KEY, not both')
+    const app = [e.GH_APP_ID, e.GH_APP_INSTALLATION_ID, e.GH_APP_PRIVATE_KEY_FILE ?? e.GH_APP_PRIVATE_KEY].filter(Boolean).length
+    if (app > 0 && app < 3) fail('GitHub App auth needs GH_APP_ID, GH_APP_INSTALLATION_ID and GH_APP_PRIVATE_KEY_FILE (or GH_APP_PRIVATE_KEY) together')
     if (app === 3 && e.GH_TOKEN) fail('set either GH_TOKEN or the GitHub App variables, not both')
     if (app === 0 && !e.GH_TOKEN) fail('GitHub credentials missing: set the GitHub App variables (recommended) or GH_TOKEN')
     if (!!e.CLAUDE_CODE_OAUTH_TOKEN === !!e.ANTHROPIC_API_KEY) fail('set exactly one of CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY')
@@ -85,4 +88,4 @@ export function loadEnv(raw: NodeJS.ProcessEnv = process.env): ParseResult<Env> 
 
 /** Every secret value in the environment, for the redactor. */
 export const envSecrets = (raw: NodeJS.ProcessEnv = process.env): (string | undefined)[] =>
-  [raw.GH_TOKEN, raw.CLAUDE_CODE_OAUTH_TOKEN, raw.ANTHROPIC_API_KEY]
+  [raw.GH_TOKEN, raw.CLAUDE_CODE_OAUTH_TOKEN, raw.ANTHROPIC_API_KEY, raw.GH_APP_PRIVATE_KEY]
