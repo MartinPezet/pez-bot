@@ -7,7 +7,7 @@ Format: `<gitmoji>: <Description>`, for example `✨: Add run-window grace perio
 - Gitmoji from [gitmoji.dev](https://gitmoji.dev/). Stack several when a commit spans types, most significant first.
 - Description: imperative, sentence case, no trailing period, under 72 characters including the emoji.
 - Body (after a blank line) says *why* whenever the diff doesn't make it obvious.
-- Squash-merging a PR appends ` (#N)`; leave it.
+- Every commit on a branch lands on `main` as-is, so each one follows this format; no `wip`/`fixup` commits in a PR.
 
 | Emoji | Use for | Emoji | Use for |
 |---|---|---|---|
@@ -20,10 +20,11 @@ Format: `<gitmoji>: <Description>`, for example `✨: Add run-window grace perio
 | 🐳 | Docker | 👷 | CI |
 | ⬆️ | Upgrade dependencies | 🔊 | Logging |
 | 💥 | Breaking change | ⏪️ | Revert |
+| 🔀 | Merge commit | | |
 
 ## Branches and PRs
 
-Work on a branch, open a PR into `main`, squash-merge. `main` stays green: run `npm run typecheck` and `npm test` before every commit.
+Work on a branch, open a PR into `main`, merge with a merge commit (no squash, no rebase). Title the merge commit `🔀: Merge #N <PR title without its emoji>`. `main` stays green: run `npm run typecheck` and `npm test` before every commit.
 
 ## Docs move with the code
 
