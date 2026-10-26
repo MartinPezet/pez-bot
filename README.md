@@ -20,6 +20,7 @@ state:approved
 implementation PR [state:pr-review] ── you review and merge → issue closes
 
 anything failing ──► state:blocked + comment + draft PR with partial work
+review PR fails CI ──► sync moves it to state:blocked, naming the failed checks
 usage limit / window end ──► work pushed to change/issue-N, issue requeued, resumed later
 weekdays 07:30 ──► morning summary in the digest discussion
 ```
@@ -45,7 +46,7 @@ Labels are the state machine. PR merges are the only approvals.
 
 **GitHub App (recommended).** Create an App under your account (Settings → Developer settings → GitHub Apps):
 
-- Repository permissions: **Contents** read/write, **Issues** read/write, **Pull requests** read/write, **Discussions** read/write, **Metadata** read.
+- Repository permissions: **Contents** read/write, **Issues** read/write, **Pull requests** read/write, **Discussions** read/write, **Checks** read, **Commit statuses** read, **Metadata** read.
 - No webhook needed.
 - Install it on the target repo **and** the digest repo. Both must be under the same owner, so one installation covers them.
 - Note the App ID and the installation ID (the number at the end of the installation's settings URL), and generate a private key.
@@ -148,7 +149,7 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | Command | What it does |
 |---|---|
 | `daemon` | The scheduler (default) |
-| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals. No Claude. |
+| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, block issues whose open review PR failed CI. No Claude. |
 | `work [--ignore-budget]` | Sync, then build or propose one item, if the window and budget allow. `--ignore-budget` skips both. |
 | `triage [--ignore-budget]` | Triage inbox items and answered questions. |
 | `summary` | Post the morning summary to the digest (if there's anything to say). |

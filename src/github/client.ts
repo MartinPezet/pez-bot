@@ -59,6 +59,8 @@ export interface GitHub {
   issueComments(n: number): Promise<IssueComment[]>
   /** PRs in every state, newest first. */
   listPrs(): Promise<PullRequest[]>
+  /** Names of the failed checks on a PR's head commit; empty while CI is pending, green, or absent. */
+  failedChecks(pr: number): Promise<string[]>
   listLabels(): Promise<LabelSpec[]>
   addLabels(n: number, labels: string[]): Promise<void>
   removeLabel(n: number, label: string): Promise<void>
@@ -227,6 +229,33 @@ export class HttpGitHub implements GitHub {
   async listPrs(): Promise<PullRequest[]> {
     const items = await this.paginate<RestPull>(`${this.base}/pulls?state=all&sort=created&direction=desc`, 300)
     return items.map(toPr)
+  }
+
+  async failedChecks(pr: number): Promise<string[]> {
+    type Ctx = { name?: string; conclusion?: string | null; context?: string; state?: string }
+    const r = await this.graphql<{
+      repository: { pullRequest: { commits: { nodes: { commit: { statusCheckRollup: { state: string; contexts: { nodes: Ctx[] } } | null } }[] } } | null }
+    }>(
+      `query($owner: String!, $name: String!, $n: Int!) {
+        repository(owner: $owner, name: $name) {
+          pullRequest(number: $n) {
+            commits(last: 1) { nodes { commit { statusCheckRollup {
+              state
+              contexts(first: 100) { nodes {
+                ... on CheckRun { name conclusion }
+                ... on StatusContext { context state }
+              } }
+            } } } }
+          }
+        }
+      }`,
+      { owner: this.owner, name: this.name, n: pr },
+    )
+    const rollup = r.repository.pullRequest?.commits.nodes[0]?.commit.statusCheckRollup
+    if (!rollup || !['FAILURE', 'ERROR'].includes(rollup.state)) return []
+    const bad = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'])
+    const names = rollup.contexts.nodes.filter(c => bad.has(c.conclusion ?? c.state ?? '')).map(c => c.name ?? c.context ?? '?')
+    return names.length ? names : ['(unnamed check)']
   }
 
   async listLabels(): Promise<LabelSpec[]> {

@@ -41,6 +41,9 @@ export class DryRunGitHub implements GitHub {
   listPrs(): Promise<PullRequest[]> {
     return this.inner.listPrs()
   }
+  failedChecks(pr: number): Promise<string[]> {
+    return this.inner.failedChecks(pr)
+  }
   listLabels(): Promise<LabelSpec[]> {
     return this.inner.listLabels()
   }
