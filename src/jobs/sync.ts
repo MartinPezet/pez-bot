@@ -7,8 +7,8 @@ import type { Deps, JobResult } from './types.js'
 
 /**
  * No Claude. Recovers issues left mid-job by a dead run (requeue, or block on the second time
- * in 24 h), promotes proposal PRs (merged → approved, closed → needs-decision), and notes
- * issues from authors outside the allowlist once. The default branch is fetched by the job runner.
+ * in 24 h), promotes proposal PRs (merged → approved, closed → needs-decision), blocks issues whose
+ * open review PR failed CI, and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
  */
 export async function sync(d: Deps): Promise<JobResult> {
   const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors)
@@ -25,6 +25,9 @@ export async function sync(d: Deps): Promise<JobResult> {
   const prs = await d.gh.listPrs()
   for (const issue of allowed.filter(i => stateOf(i) === 'state:proposal-review')) {
     if (await promote(d, issue, prs)) changed++
+  }
+  for (const issue of allowed.filter(i => stateOf(i) === 'state:proposal-review' || stateOf(i) === 'state:pr-review')) {
+    if (await blockOnFailedCi(d, issue, prs)) changed++
   }
   return { outcome: changed ? 'ok' : 'noop', detail: `${changed} issue(s) moved` }
 }
@@ -69,6 +72,21 @@ export async function promote(d: Deps, issue: Issue, prs: PullRequest[]): Promis
     )
     d.digest.add('❌', `Proposal rejected for #${issue.number} ${issue.title}`, latest.url)
   }
+  return true
+}
+
+/** A review PR with failed CI isn't ready for review; pending or green CI leaves it alone. */
+async function blockOnFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promise<boolean> {
+  const n = issue.number
+  const pr = prs.find(p => p.state === 'OPEN' && (p.headRefName === `change/issue-${n}` || p.headRefName.startsWith(`proposal/issue-${n}-`)))
+  if (!pr) return false
+  // An App without the Checks/Commit statuses permission can't read CI; don't fail the whole sync over it.
+  const failed = await d.gh.failedChecks(pr.number).catch(err => {
+    d.log.warn({ err, pr: pr.number }, 'could not read CI status')
+    return []
+  })
+  if (!failed.length) return false
+  await block(d, issue, `CI failed on ${pr.url}: ${failed.map(c => `\`${c}\``).join(', ')}. Fix it on \`${pr.headRefName}\`.`)
   return true
 }
 

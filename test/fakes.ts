@@ -7,6 +7,8 @@ export class FakeGitHub implements GitHub {
   issues: Issue[] = []
   comments = new Map<number, IssueComment[]>()
   prs: PullRequest[] = []
+  /** Failed check names by PR number. */
+  failed = new Map<number, string[]>()
   labels: LabelSpec[] = []
   writes: string[] = []
   discussion = {
@@ -66,6 +68,9 @@ export class FakeGitHub implements GitHub {
   }
   async listPrs() {
     return [...this.prs].sort((a, b) => b.number - a.number)
+  }
+  async failedChecks(pr: number) {
+    return this.failed.get(pr) ?? []
   }
   async listLabels() {
     return this.labels

@@ -114,6 +114,32 @@ describe('HttpGitHub', () => {
       discussionId: 'D2',
     })
   })
+
+  it('names the failed checks on a PR head, and none while CI is pending or absent', async () => {
+    const rollup = (state: string | null) => ({
+      json: {
+        data: {
+          repository: {
+            pullRequest: {
+              commits: {
+                nodes: [{
+                  commit: {
+                    statusCheckRollup: state && {
+                      state,
+                      contexts: { nodes: [{ name: 'e2e', conclusion: 'FAILURE' }, { name: 'unit', conclusion: 'SUCCESS' }, { context: 'ci/legacy', state: 'ERROR' }, { name: 'slow', conclusion: null }] },
+                    },
+                  },
+                }],
+              },
+            },
+          },
+        },
+      },
+    })
+    expect(await gh(fakeFetch(() => rollup('FAILURE')).fn).failedChecks(10)).toEqual(['e2e', 'ci/legacy'])
+    expect(await gh(fakeFetch(() => rollup('PENDING')).fn).failedChecks(10)).toEqual([])
+    expect(await gh(fakeFetch(() => rollup(null)).fn).failedChecks(10)).toEqual([])
+  })
 })
 
 describe('dry run', () => {
