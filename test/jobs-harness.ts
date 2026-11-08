@@ -134,10 +134,13 @@ export function harness(o: { gate?: Gate; now?: Date; project?: Record<string, u
   const claude = new FakeClaude()
   const runs: { cmd: string; args: string[]; opts?: RunOpts | undefined }[] = []
   const scripted: [string, Partial<RunResult>][] = []
+  const baselineScripted: [string, Partial<RunResult>][] = []
   const run: Run = async (cmd, args, opts) => {
     runs.push({ cmd, args, opts })
     const line = [cmd, ...args].join(' ')
-    const hit = scripted.find(([prefix]) => line.startsWith(prefix))
+    // Commands in the default-branch baseline worktree only see baseline scripts, so a branch failure is new by default.
+    const onBaseline = opts?.cwd?.includes('baseline') ?? false
+    const hit = (onBaseline ? baselineScripted : scripted).find(([prefix]) => line.startsWith(prefix))
     // Sidecar version queries answer like the default compose images unless a test scripts them.
     const defaults = line.includes('SHOW server_version') ? '16.4 (Debian 16.4-1)' : line.includes('INFO server') ? 'redis_version:7.2.4\r\n' : ''
     return { exitCode: 0, stdout: defaults, stderr: '', all: defaults, timedOut: false, ...(hit?.[1] ?? {}) }
@@ -175,6 +178,10 @@ export function harness(o: { gate?: Gate; now?: Date; project?: Record<string, u
     /** Make subprocess calls whose command line starts with `prefix` return this. */
     script(prefix: string, r: Partial<RunResult>) {
       scripted.unshift([prefix, r])
+    },
+    /** Same as script, but for commands run in the default-branch baseline worktree. */
+    scriptBaseline(prefix: string, r: Partial<RunResult>) {
+      baselineScripted.unshift([prefix, r])
     },
     commandLines: () => runs.map(r => [r.cmd, ...r.args].join(' ')),
   }
