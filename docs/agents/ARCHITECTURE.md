@@ -45,7 +45,7 @@ Agents end with `NEEDS_DECISION:`, `NEEDS_SPLIT:` or `BLOCKED:`. The parser take
 
 ## CI on review PRs
 
-`sync` reads the status check rollup of each open review PR. A failed implementation PR gets its log tail stored in `kv` and returns to `approved`; the next build skips apply, seeds the fix loop with that log, and pushes to the same PR. WIP limits don't hold it, because it adds no PR. Attempts are capped by `maxFixAttempts`, and `block()` clears them. A failed proposal PR or an unreadable log blocks straight away.
+`sync` reads the status check rollup of each open review PR. A failed implementation PR gets its log tail stored in `kv` and returns to `approved`; the next build skips apply, seeds the fix loop with that log (prompt `fix-ci`, since it was never compared with the default branch), and pushes to the same PR. WIP limits don't hold it, because it adds no PR. Attempts are capped by `maxFixAttempts`, and `block()` clears them. A failed proposal PR or an unreadable log blocks straight away.
 
 ## Gotchas
 

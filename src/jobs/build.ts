@@ -4,7 +4,7 @@ import type { Issue } from '../github/client.js'
 import { isUrgent, setState } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import {
-  agentEnv, askClaude, block, CI_FIX_FAILURE, FATAL_CLAUDE_ERRORS, gatesText, isPause, pause, pushAndOpenPr,
+  agentEnv, askClaude, block, CI_FIX_FAILURE, FATAL_CLAUDE_ERRORS, gatesText, gateJudge, isPause, type JudgedGates, pause, pushAndOpenPr,
   resetTestServices, runGates, stopSignal, sumCost, testServiceProblems,
 } from './common.js'
 import { kv } from '../state/db.js'
@@ -18,6 +18,15 @@ export function findChange(dir: string, n: number): { id: string; archived: bool
   if (live) return { id: live, archived: false }
   const archived = list(path.join(changes, 'archive')).find(c => new RegExp(`(^|-)issue-${n}-`).test(c))
   return archived ? { id: archived.replace(/^\d{4}-\d{2}-\d{2}-/, ''), archived: true } : null
+}
+
+function gateNote(d: Deps, gate: { preExisting?: boolean; log: string }): string {
+  if (!gate.preExisting) return `✅ Gates passed: ${gatesText(d)}`
+  return `⚠️ Gates failed only with errors already present on \`${d.branch}\`; this change adds none. Fix them in a separate change.
+
+\`\`\`
+${tail(gate.log, 30)}
+\`\`\``
 }
 
 /**
@@ -89,11 +98,16 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
 
   let sig = stopSignal(text)
   await resetTestServices(d)
-  let gate = sig ? { ok: false, log: '' } : ciFailure ? { ok: false, log: ciFailure } : await runGates(d, dir)
+  const judge = gateJudge(d)
+  let gate: JudgedGates = sig ? { ok: false, log: '' } : ciFailure ? { ok: false, log: ciFailure } : await judge(await runGates(d, dir))
   for (let i = 0; !sig && !gate.ok && i < d.project.maxFixAttempts; i++) {
     d.log.info({ issue: n, attempt: i + 1 }, 'gates failed, fixing')
     const fix = await askClaude(d, {
-      model: 'fix', tools: 'build', prompt: await d.prompt('fix', { ...vars, GATE_OUTPUT: gate.log }), cwd: dir, urgent, ignoreBudget: o.ignoreBudget,
+      model: 'fix', tools: 'build', cwd: dir, urgent, ignoreBudget: o.ignoreBudget,
+      // A CI log was never compared with the default branch, so it can't use the `fix` prompt's claims about that.
+      prompt: ciFailure && i === 0
+        ? await d.prompt('fix-ci', { ...vars, CI_OUTPUT: ciFailure })
+        : await d.prompt('fix', { ...vars, GATE_OUTPUT: gate.log, NEW_ERRORS: (gate.newErrors ?? []).join('\n') || '(none identified)' }),
     })
     cost = sumCost(cost, fix)
     if (isPause(fix)) return { ...(await pause(d, issue, fix, 'state:approved', dir, branch)), ...cost }
@@ -101,7 +115,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
     sig = stopSignal(fix.text)
     if (!sig) {
       await resetTestServices(d)
-      gate = await runGates(d, dir)
+      gate = await judge(await runGates(d, dir))
     }
   }
 
@@ -121,7 +135,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
 
   const url = await pushAndOpenPr(
     d, dir, branch, `${issue.title} (#${n})`,
-    `Implements \`openspec/changes/${change.id}\`.\n\n${text.slice(0, 4000)}\n\n✅ Gates passed: ${gatesText(d)}\n\nCloses #${n}`,
+    `Implements \`openspec/changes/${change.id}\`.\n\n${text.slice(0, 4000)}\n\n${gateNote(d, gate)}\n\nCloses #${n}`,
   )
   await setState(d.gh, issue, 'state:pr-review')
   kv.del(d.db, CI_FIX_FAILURE(n))

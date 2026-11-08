@@ -8,6 +8,14 @@ Gate output:
 {{GATE_OUTPUT}}
 ```
 
+The runner already compared this output with the default branch. Only these failures are new in this change:
+
+```
+{{NEW_ERRORS}}
+```
+
+Failures not listed there exist on `origin/{{DEFAULT_BRANCH}}` too: leave them alone. Fix only the new ones.
+
 Find the root cause and fix it (use the systematic-debugging skill if available). Same rules as the implementation run: stay in scope, never weaken tests or lint rules, never push. Commit the fix as `fix(<scope>): <summary> (#{{ISSUE_NUMBER}})`.
 
-If the failure already exists on the default branch or is outside this change's scope, don't fix it: end your final message with a line starting `BLOCKED:` explaining what's failing and why it isn't this change.
+Don't end with `BLOCKED:` because of failures that also exist on the default branch; the runner has already excluded them. Use `BLOCKED:` only if a new failure is outside this change's scope and you can't fix it. Run commands from the repo root with `git -C` or `npm --prefix`; never `cd` to an absolute path.

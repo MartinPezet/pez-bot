@@ -114,7 +114,7 @@ async function handleFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promis
   return true
 }
 
-/** Log tails of the failed jobs for the fix prompt, bounded because the prompt is one process argument. */
+/** Log tails of the failed jobs for the fix prompt, bounded so a noisy matrix can't flood it. */
 async function ciLogs(d: Deps, failed: FailedCheck[]): Promise<string> {
   const parts: string[] = []
   for (const check of failed.slice(0, 3)) {

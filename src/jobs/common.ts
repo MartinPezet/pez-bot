@@ -5,6 +5,7 @@ import { setState, type State } from '../github/labels.js'
 import type { ClaudeResult } from '../exec/claude.js'
 import { tail } from '../exec/run.js'
 import { kv } from '../state/db.js'
+import { newFailures } from './baseline.js'
 import type { Deps, JobResult } from './types.js'
 
 /** Agents end their final message with one of these lines when they must stop. The last one wins. */
@@ -294,4 +295,48 @@ export async function runGates(d: Deps, dir: string): Promise<{ ok: boolean; log
     if (r.exitCode !== 0) return { ok: false, log: `$ ${[cmd, ...args].join(' ')}\n${tail(r.all, 150)}` }
   }
   return { ok: true, log: '' }
+}
+
+const BASELINE_BRANCH = 'baseline'
+
+/** Gate output on the default branch, cached per commit so a red default branch is only measured once. */
+async function baselineGateLog(d: Deps): Promise<string> {
+  const dir = await d.wt.fresh(BASELINE_BRANCH)
+  try {
+    const sha = (await d.run('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    const key = `baseline.${sha}`
+    const cached = kv.get(d.db, key)
+    if (cached !== undefined) return cached
+    const [icmd = '', ...iargs] = d.project.install
+    const inst = await d.run(icmd, iargs, { as: 'agent', cwd: dir, env: agentEnv(d), timeoutMs: 30 * 60_000 })
+    if (inst.exitCode !== 0) throw new Error(`Install failed on ${d.branch}:
+${tail(inst.all, 30)}`)
+    await resetTestServices(d)
+    const log = (await runGates(d, dir)).log
+    kv.set(d.db, key, log)
+    return log
+  } finally {
+    await d.wt.remove(dir)
+  }
+}
+
+export interface JudgedGates { ok: boolean; log: string; preExisting?: boolean; newErrors?: string[] }
+
+/**
+ * Passes a failed gate run when every failure is already on the default branch, so a red default
+ * branch never blocks an unrelated change. Fails closed: if the baseline can't be measured, the failure stands.
+ */
+export function gateJudge(d: Deps): (g: { ok: boolean; log: string }) => Promise<JudgedGates> {
+  let base: string | undefined
+  return async g => {
+    if (g.ok) return g
+    try {
+      base ??= await baselineGateLog(d)
+    } catch (e) {
+      d.log.error({ err: e instanceof Error ? e.message : String(e) }, 'could not measure gates on the default branch')
+      return g
+    }
+    const fresh = newFailures(g.log, base)
+    return fresh.length ? { ...g, newErrors: fresh } : { ok: true, log: g.log, preExisting: true }
+  }
 }
