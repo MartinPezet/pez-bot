@@ -4,7 +4,7 @@ import type { Issue } from '../github/client.js'
 import { isUrgent, setState } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import {
-  agentEnv, askClaude, block, FATAL_CLAUDE_ERRORS, gatesText, isPause, pause, pushAndOpenPr,
+  agentEnv, askClaude, block, FATAL_CLAUDE_ERRORS, gatesText, gateJudge, isPause, pause, pushAndOpenPr,
   resetTestServices, runGates, stopSignal, sumCost, testServiceProblems,
 } from './common.js'
 import { kv } from '../state/db.js'
@@ -24,6 +24,15 @@ export function findChange(dir: string, n: number): { id: string; archived: bool
  * Approved change → apply → gates → fix loop → implementation PR. Resumes from an existing
  * `change/issue-N` branch (merging the default branch in first); paused runs are pushed there.
  */
+function gateNote(d: Deps, gate: { preExisting?: boolean; log: string }): string {
+  if (!gate.preExisting) return `✅ Gates passed: ${gatesText(d)}`
+  return `⚠️ Gates failed only with errors already present on \`${d.branch}\`; this change adds none. Fix them in a separate change.
+
+\`\`\`
+${tail(gate.log, 30)}
+\`\`\``
+}
+
 export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean }): Promise<JobResult> {
   const n = issue.number
   const branch = `change/issue-${n}`
@@ -86,11 +95,13 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
 
   let sig = stopSignal(text)
   await resetTestServices(d)
-  let gate = sig ? { ok: false, log: '' } : await runGates(d, dir)
+  const judge = gateJudge(d)
+  let gate = sig ? { ok: false, log: '' } : await judge(await runGates(d, dir))
   for (let i = 0; !sig && !gate.ok && i < d.project.maxFixAttempts; i++) {
     d.log.info({ issue: n, attempt: i + 1 }, 'gates failed, fixing')
     const fix = await askClaude(d, {
-      model: 'fix', tools: 'build', prompt: await d.prompt('fix', { ...vars, GATE_OUTPUT: gate.log }), cwd: dir, urgent, ignoreBudget: o.ignoreBudget,
+      model: 'fix', tools: 'build', cwd: dir, urgent, ignoreBudget: o.ignoreBudget,
+      prompt: await d.prompt('fix', { ...vars, GATE_OUTPUT: gate.log, NEW_ERRORS: (gate.newErrors ?? []).join('\n') || '(none identified)' }),
     })
     cost = sumCost(cost, fix)
     if (isPause(fix)) return { ...(await pause(d, issue, fix, 'state:approved', dir, branch)), ...cost }
@@ -98,7 +109,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
     sig = stopSignal(fix.text)
     if (!sig) {
       await resetTestServices(d)
-      gate = await runGates(d, dir)
+      gate = await judge(await runGates(d, dir))
     }
   }
 
@@ -114,7 +125,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
 
   const url = await pushAndOpenPr(
     d, dir, branch, `${issue.title} (#${n})`,
-    `Implements \`openspec/changes/${change.id}\`.\n\n${text.slice(0, 4000)}\n\n✅ Gates passed: ${gatesText(d)}\n\nCloses #${n}`,
+    `Implements \`openspec/changes/${change.id}\`.\n\n${text.slice(0, 4000)}\n\n${gateNote(d, gate)}\n\nCloses #${n}`,
   )
   await setState(d.gh, issue, 'state:pr-review')
   await d.gh.comment(n, `✅ Implementation PR ready: ${url}`)

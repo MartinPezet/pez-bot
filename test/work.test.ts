@@ -184,6 +184,17 @@ describe('build', () => {
     expect(h.claude.calls[1]?.prompt).toContain('FAIL x.test.ts')
   })
 
+  it('opens the PR when gates fail only with errors already on the default branch', async () => {
+    const h = harness()
+    approvedIssue(h)
+    h.script('pnpm test', { exitCode: 1, all: 'FAIL x.test.ts:12:3 error' })
+    h.scriptBaseline('pnpm test', { exitCode: 1, all: 'FAIL x.test.ts:40:3 error' })
+    h.claude.then(applyCommits(h))
+    expect((await work(h.deps, { ignoreBudget: false })).outcome).toBe('ok')
+    expect(h.claude.calls).toHaveLength(1)
+    expect(h.gh.prBodies[0]).toContain('already present on')
+  })
+
   it('blocks with a draft PR of the partial work when gates keep failing', async () => {
     const h = harness()
     approvedIssue(h)

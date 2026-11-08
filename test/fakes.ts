@@ -7,6 +7,8 @@ export class FakeGitHub implements GitHub {
   issues: Issue[] = []
   comments = new Map<number, IssueComment[]>()
   prs: PullRequest[] = []
+  /** Body of every PR opened through openPr, in order. */
+  prBodies: string[] = []
   labels: LabelSpec[] = []
   writes: string[] = []
   discussion = {
@@ -99,6 +101,7 @@ export class FakeGitHub implements GitHub {
     const existing = this.prs.find(x => x.headRefName === p.head && x.state === 'OPEN')
     if (existing) return { number: existing.number, url: existing.url }
     const number = this.seq++
+    this.prBodies.push(p.body)
     this.writes.push(`open ${p.draft ? 'draft ' : ''}PR #${number} ${p.head}: ${p.title}`)
     const pr = this.addPr({ number, headRefName: p.head, title: p.title, isDraft: p.draft ?? false, createdAt: new Date().toISOString() })
     return { number, url: pr.url }
