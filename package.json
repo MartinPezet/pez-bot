@@ -14,7 +14,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "dev": "tsx src/cli.ts"
+    "dev": "tsx src/cli.ts",
+    "ui": "tsx ui/server.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -1,6 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateHealth, type HealthInput } from '../src/health.js'
-import { renderStatus, type StatusData } from '../src/status.js'
+import { openDb } from '../src/state/db.js'
+import { failedRuns, finishRun, startRun } from '../src/state/jobs.js'
+import { renderFailures, renderStatus, type StatusData } from '../src/status.js'
+
+describe('failed runs', () => {
+  it('lists only error and blocked runs, newest first, redacted and on one line each', () => {
+    const db = openDb(':memory:')
+    const finish = (job: string, r: Parameters<typeof finishRun>[2]) => finishRun(db, startRun(db, job), r, new Date('2026-10-05T09:00:00Z'))
+    finish('sync', { outcome: 'error', detail: 'push failed:\nhttps://x:ghp_abcdefghijklmnopqrstuvwxyz@github.com' })
+    for (const outcome of ['ok', 'noop', 'paused', 'checkpointed', 'skipped'] as const) finish('work', { outcome })
+    finish('work', { outcome: 'blocked', issue: 12, kind: 'build', detail: 'Gates still failing' })
+
+    const lines = renderFailures(failedRuns(db), 'UTC').split('\n')
+    expect(lines).toEqual([
+      '05/10/2026, 09:00  blocked build       #12    Gates still failing',
+      '05/10/2026, 09:00  error   sync               push failed: https://[REDACTED]@github.com',
+    ])
+    db.close()
+  })
+
+  it('says so when there are none', () => {
+    expect(renderFailures([], 'UTC')).toBe('No failed runs.')
+  })
+})
 
 const now = new Date('2026-10-05T09:00:00Z')
 const healthy: HealthInput = {

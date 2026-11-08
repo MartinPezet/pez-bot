@@ -5,6 +5,10 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { main } from '../src/cli.js'
 import { Git } from '../src/exec/git.js'
 import { agentArgv, type Run, type RunOpts } from '../src/exec/run.js'
+import { paths } from '../src/paths.js'
+import { openDb } from '../src/state/db.js'
+import { finishRun, startRun } from '../src/state/jobs.js'
+import { acquireLock } from '../src/state/lock.js'
 
 describe('cli', () => {
   const quiet = () => {
@@ -38,6 +42,25 @@ describe('cli', () => {
   it('rejects unknown commands', async () => {
     quiet()
     expect(await main(['frobnicate'])).toBe(64)
+  })
+
+  it('prints failed runs from the state database, without taking the lease', async () => {
+    quiet()
+    const dir = mkdtempSync(path.join(tmpdir(), 'pezbot-cli-'))
+    process.env.DATA_DIR = dir
+    try {
+      expect(await main(['failures'])).toBe(1) // no database yet
+      const db = openDb(paths(dir).db)
+      finishRun(db, startRun(db, 'sync'), { outcome: 'error', detail: 'boom' })
+      acquireLock(db, 'daemon', 'work')
+      db.close()
+      vi.mocked(console.log).mockClear()
+      expect(await main(['failures'])).toBe(0)
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('boom'))
+    } finally {
+      delete process.env.DATA_DIR
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   describe('healthcheck without state', () => {
