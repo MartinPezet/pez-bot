@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
  * them with `.backlog-runner/prompts/<name>.md` on its default branch.
  */
 
-export const PROMPT_NAMES = ['propose', 'apply', 'fix', 'validate-fix', 'triage', 'prd-to-backlog'] as const
+export const PROMPT_NAMES = ['propose', 'apply', 'fix', 'fix-ci', 'validate-fix', 'triage', 'prd-to-backlog'] as const
 export type PromptName = (typeof PROMPT_NAMES)[number]
 
 export function builtinPromptDir(): string {

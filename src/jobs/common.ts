@@ -196,8 +196,14 @@ export async function pushAndOpenPr(
   return (await d.gh.openPr({ head: branch, base: d.branch, title, body, draft })).url
 }
 
-/** state:blocked with a comment; partial work goes up as a draft PR. */
+/** kv keys for CI fixes: rounds used so far, and the failure the next build should fix. */
+export const CI_FIX_ATTEMPTS = (n: number) => `cifix.attempts.${n}`
+export const CI_FIX_FAILURE = (n: number) => `cifix.failure.${n}`
+
+/** state:blocked with a comment; partial work goes up as a draft PR. A relabel afterwards starts CI fixes afresh. */
 export async function block(d: Deps, issue: Issue, reason: string, dir?: string, branch?: string): Promise<JobResult> {
+  kv.del(d.db, CI_FIX_ATTEMPTS(issue.number))
+  kv.del(d.db, CI_FIX_FAILURE(issue.number))
   let extra = ''
   if (dir && branch && (await d.wt.commitsAhead(dir).catch(() => 0)) > 0) {
     const url = await pushAndOpenPr(

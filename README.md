@@ -20,6 +20,8 @@ state:approved
 implementation PR [state:pr-review] ── you review and merge → issue closes
 
 anything failing ──► state:blocked + comment + draft PR with partial work
+implementation PR fails CI ──► sync sends it back to build with the CI log, up to maxFixAttempts times, then state:blocked
+proposal PR fails CI, or the CI log is unreadable ──► state:blocked, naming the failed checks
 usage limit / window end ──► work pushed to change/issue-N, issue requeued, resumed later
 weekdays 07:30 ──► morning summary in the digest discussion
 ```
@@ -46,7 +48,7 @@ Labels are the state machine. PR merges are the only approvals.
 
 **GitHub App (recommended).** Create an App under your account (Settings → Developer settings → GitHub Apps):
 
-- Repository permissions: **Contents** read/write, **Issues** read/write, **Pull requests** read/write, **Discussions** read/write, **Metadata** read.
+- Repository permissions: **Contents** read/write, **Issues** read/write, **Pull requests** read/write, **Discussions** read/write, **Checks** read, **Commit statuses** read, **Actions** read, **Metadata** read.
 - No webhook needed.
 - Install it on the target repo **and** the digest repo. Both must be under the same owner, so one installation covers them.
 - Note the App ID and the installation ID (the number at the end of the installation's settings URL), and generate a private key.
@@ -149,7 +151,7 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | Command | What it does |
 |---|---|
 | `daemon` | The scheduler (default) |
-| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals. No Claude. |
+| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, send review PRs that failed CI back to build or block them. No Claude. |
 | `work [--ignore-budget]` | Sync, then build or propose one item, if the window and budget allow. `--ignore-budget` skips both. |
 | `triage [--ignore-budget]` | Triage inbox items and answered questions. |
 | `summary` | Post the morning summary to the digest (if there's anything to say). |
@@ -245,7 +247,7 @@ Read from the target repo's default branch before every job and validated strict
 | `gates` | required | Commands that must pass, in order, for example `[["pnpm","typecheck"],["pnpm","lint"],["pnpm","test"]]`. |
 | `areas` | required | Allowed `area:` labels (lower-kebab-case). |
 | `wip.proposalsInReview`, `wip.prsInReview` | `3`, `3` | Open proposal/implementation PRs before the runner stops starting new ones. `urgent` doesn't bypass these. |
-| `maxFixAttempts` | `2` | Fix rounds after failing gates. |
+| `maxFixAttempts` | `2` | Fix rounds after failing gates, and separately how many times a PR that failed CI goes back to build. `0` blocks on the first CI failure. |
 | `testServices.postgres` | | `{ "version": "16", "env": "DATABASE_URL", "database": "app_test", "schema": "public" }`: the URL variable gates receive, and what's reset (schema dropped and recreated) before every build's gates. Optional `vars` also hands out the parts separately, for apps that don't read a URL: `{ "host": "DB_HOST", "port": "DB_PORT", "user": "DB_USER", "password": "DB_PASSWORD", "database": "DB_DATABASE" }` (any subset). |
 | `testServices.redis` | | `{ "version": "7", "env": "REDIS_URL" }`: flushed before every build's gates. Optional `vars`: `{ "host": …, "port": …, "password": … }`. |
 | `testServices.*.version` | | Production's major version. Before each build the runner checks the sidecar's actual version; on a mismatch builds are held (issues untouched), the digest says once what to set (`POSTGRES_TEST_IMAGE` / `REDIS_TEST_IMAGE`), and `setup` reports it. |
@@ -283,7 +285,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 - **Two users.** `runner` holds the GitHub credentials, state and logs and does every GitHub write and `git push`. `agent` runs Claude, installs and gates (agent-written code) through `sudo -u agent env -i …`, so it sees only Claude's own auth and the test service URLs. It can't read the runner's environment, `/data/state`, logs or the App key.
 - **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
 - **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own comments) reach prompts or move state.
-- **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. Verified at start (`example.com` must fail, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
+- **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
 - **Redaction** of tokens and keys in logs, comments, PR bodies and the digest.
 - The Docker socket is never mounted.
@@ -298,6 +300,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 - No `NET_ADMIN`/`NET_RAW` (check `cap_add`).
 - DNS for an allowed host failing at start.
 - A host your install needs that isn't allowed: add it to `EXTRA_ALLOWED_DOMAINS`.
+- PRs block with `could not read the CI log`: check the App has **Actions** read, and look in the container log for `firewall: WARNING` about the runner-only rule. Don't add the log hosts to `EXTRA_ALLOWED_DOMAINS`: that opens them to agent code, and the firewall check then fails.
 
 `docker compose exec runner cat /data/state/firewall.json` shows the last result. Restart the container to re-run setup.
 

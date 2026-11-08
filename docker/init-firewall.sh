@@ -33,6 +33,11 @@ if [ -n "${EXTRA_ALLOWED_DOMAINS:-}" ]; then
   for d in "${extra[@]}"; do d=$(echo "$d" | tr -d '[:space:]'); [ -n "$d" ] && DOMAINS+=("$d"); done
 fi
 
+# Where GitHub redirects Actions job logs (numbered, with no published list). These are shared
+# Azure storage addresses, so only the runner user may reach them; agent code stays default-deny.
+RUNNER_SET=runner-only
+RUNNER_HOSTS=(productionresultssa{0..99}.blob.core.windows.net)
+
 write_state() { # ok error blocked allowed
   jq -n --argjson ok "$1" --arg error "$2" --arg blocked "$3" --arg allowed "$4" \
     --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -71,10 +76,36 @@ build_set() {
   done
 }
 
+# Fill ipset $1 with the runner-only hosts. Missing hosts are normal: not every number exists.
+build_runner_set() {
+  local name=$1 d ip
+  ipset create "$name" hash:ip -exist
+  ipset flush "$name"
+  for d in "${RUNNER_HOSTS[@]}"; do
+    while read -r ip; do
+      if [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then ipset add "$name" "$ip" -exist; fi
+    done < <(dig +time=2 +tries=1 +noall +answer A "$d" | awk '$4 == "A" {print $5}')
+  done
+}
+
+# The runner-only rule must never reach agent code. The runner losing it only costs CI logs.
+verify_runner_only() {
+  local host="https://${RUNNER_HOSTS[0]}" code
+  code=$(setpriv --reuid=agent --regid=work --clear-groups curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$host" || true)
+  if [ -n "$code" ] && [ "$code" != "000" ]; then
+    fail "verification failed: the agent user can reach $host"
+  fi
+  code=$(setpriv --reuid=runner --regid=work --clear-groups curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$host" || true)
+  if [ -z "$code" ] || [ "$code" = "000" ]; then
+    echo "firewall: WARNING: the runner user can't reach $host; CI logs will be unreadable" >&2
+  fi
+}
+
 verify() {
   if curl -s --connect-timeout 5 https://example.com >/dev/null 2>&1; then
     fail "verification failed: able to reach https://example.com"
   fi
+  verify_runner_only
   local gh an
   gh=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 https://api.github.com/zen || true)
   [ "$gh" != "000" ] || fail "verification failed: cannot reach https://api.github.com"
@@ -92,6 +123,7 @@ init() {
   iptables -t nat -F; iptables -t nat -X
   iptables -t mangle -F; iptables -t mangle -X
   ipset destroy "$SET" 2>/dev/null || true
+  ipset destroy "$RUNNER_SET" 2>/dev/null || true
   if [ -n "$dns_rules" ]; then
     iptables -t nat -N DOCKER_OUTPUT 2>/dev/null || true
     iptables -t nat -N DOCKER_POSTROUTING 2>/dev/null || true
@@ -100,6 +132,7 @@ init() {
 
   local err
   err=$(build_set "$SET" 2>&1) || fail "allowlist: $err"
+  build_runner_set "$RUNNER_SET"
 
   # IPv6: loopback only. (Compose also disables IPv6; this covers hosts where that fails.)
   if command -v ip6tables >/dev/null && ip6tables -L >/dev/null 2>&1; then
@@ -136,6 +169,9 @@ init() {
   iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
   iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
   iptables -A OUTPUT -p tcp -m set --match-set "$SET" dst -j ACCEPT
+  # Optional: without it CI logs are unreadable and failed PRs block, so it must not fail the firewall.
+  iptables -A OUTPUT -p tcp -m owner --uid-owner runner -m set --match-set "$RUNNER_SET" dst -j ACCEPT ||
+    echo "firewall: WARNING: no runner-only rule; CI logs will be unreadable" >&2
   iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
 
   verify
@@ -150,6 +186,9 @@ refresh() {
   fi
   ipset swap "$SET-new" "$SET"
   ipset destroy "$SET-new"
+  build_runner_set "$RUNNER_SET-new"
+  ipset swap "$RUNNER_SET-new" "$RUNNER_SET"
+  ipset destroy "$RUNNER_SET-new"
   verify
 }
 

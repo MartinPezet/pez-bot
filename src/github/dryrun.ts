@@ -1,5 +1,5 @@
 import type { Logger } from '../log.js'
-import type { DiscussionLookup, GitHub, Issue, IssueComment, LabelSpec, PullRequest } from './client.js'
+import type { DiscussionLookup, FailedCheck, GitHub, Issue, IssueComment, LabelSpec, PullRequest } from './client.js'
 
 export interface Intent {
   action: string
@@ -40,6 +40,12 @@ export class DryRunGitHub implements GitHub {
   }
   listPrs(): Promise<PullRequest[]> {
     return this.inner.listPrs()
+  }
+  failedChecks(pr: number): Promise<FailedCheck[]> {
+    return this.inner.failedChecks(pr)
+  }
+  checkLog(check: FailedCheck): Promise<string | null> {
+    return this.inner.checkLog(check)
   }
   listLabels(): Promise<LabelSpec[]> {
     return this.inner.listLabels()

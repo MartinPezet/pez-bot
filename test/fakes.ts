@@ -1,4 +1,4 @@
-import type { DiscussionLookup, GitHub, Issue, IssueComment, LabelSpec, PullRequest } from '../src/github/client.js'
+import type { DiscussionLookup, FailedCheck, GitHub, Issue, IssueComment, LabelSpec, PullRequest } from '../src/github/client.js'
 import { GraphQLError } from '../src/github/client.js'
 
 /** In-memory GitHub for unit tests. `writes` is a readable log of every write call. */
@@ -7,6 +7,10 @@ export class FakeGitHub implements GitHub {
   issues: Issue[] = []
   comments = new Map<number, IssueComment[]>()
   prs: PullRequest[] = []
+  /** Failed checks by PR number. */
+  failed = new Map<number, FailedCheck[]>()
+  /** Log text by check name; a check without one has no log. */
+  logs = new Map<string, string>()
   /** Body of every PR opened through openPr, in order. */
   prBodies: string[] = []
   labels: LabelSpec[] = []
@@ -68,6 +72,12 @@ export class FakeGitHub implements GitHub {
   }
   async listPrs() {
     return [...this.prs].sort((a, b) => b.number - a.number)
+  }
+  async failedChecks(pr: number) {
+    return this.failed.get(pr) ?? []
+  }
+  async checkLog(check: FailedCheck) {
+    return this.logs.get(check.name) ?? null
   }
   async listLabels() {
     return this.labels

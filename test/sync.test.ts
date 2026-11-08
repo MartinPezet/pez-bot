@@ -79,3 +79,60 @@ describe('sync: author allowlist', () => {
     expect(h.digest.events.map(e => e.text)).toEqual(['Ignoring #5: @mallory is not in allowedAuthors'])
   })
 })
+
+describe('sync: CI on review PRs', () => {
+  const e2e = { name: 'e2e', url: 'https://github.com/acme/app/actions/runs/1/job/2' }
+
+  it('sends a failed implementation PR back to the build with the log tail', async () => {
+    const h = harness()
+    h.gh.addIssue({ number: 1, labels: ['state:pr-review'] })
+    h.gh.addPr({ number: 10, headRefName: 'change/issue-1' })
+    h.gh.failed.set(10, [e2e])
+    h.gh.logs.set('e2e', 'boom: login test failed')
+    expect((await sync(h.deps)).outcome).toBe('ok')
+    expect(h.gh.issues[0]?.labels).toEqual(['state:approved'])
+    expect(kv.get(h.db, 'cifix.attempts.1')).toBe('1')
+    expect(kv.get(h.db, 'cifix.failure.1')).toContain('boom: login test failed')
+    expect(h.gh.comments.get(1)?.[0]?.body).toContain('attempt 1 of 2')
+    expect(h.digest.events.map(e => e.emoji)).toEqual(['🔁'])
+  })
+
+  it('blocks when the CI log cannot be read, rather than fixing blind', async () => {
+    const h = harness()
+    h.gh.addIssue({ number: 1, labels: ['state:pr-review'] })
+    h.gh.addPr({ number: 10, headRefName: 'change/issue-1' })
+    h.gh.failed.set(10, [e2e])
+    h.gh.checkLog = async () => {
+      throw new Error('fetch failed')
+    }
+    await sync(h.deps)
+    expect(h.gh.issues[0]?.labels).toEqual(['state:blocked'])
+    expect(h.gh.comments.get(1)?.[0]?.body).toContain('could not read the CI log')
+    expect(kv.get(h.db, 'cifix.attempts.1')).toBeUndefined()
+  })
+
+  it('blocks once the fix attempts run out, and a later relabel starts afresh', async () => {
+    const h = harness()
+    kv.set(h.db, 'cifix.attempts.1', '2')
+    h.gh.addIssue({ number: 1, labels: ['state:pr-review'] })
+    h.gh.addPr({ number: 10, headRefName: 'change/issue-1' })
+    h.gh.failed.set(10, [e2e])
+    h.gh.logs.set('e2e', 'boom')
+    await sync(h.deps)
+    expect(h.gh.issues[0]?.labels).toEqual(['state:blocked'])
+    expect(h.gh.comments.get(1)?.[0]?.body).toContain('Gave up after 2 fix attempt(s)')
+    expect(kv.get(h.db, 'cifix.attempts.1')).toBeUndefined()
+  })
+
+  it('blocks a failed proposal PR; pending or green CI leaves issues alone', async () => {
+    const h = harness()
+    h.gh.addIssue({ number: 2, labels: ['state:proposal-review'] })
+    h.gh.addIssue({ number: 3, labels: ['state:pr-review'] })
+    h.gh.addPr({ number: 11, headRefName: 'proposal/issue-2-x' })
+    h.gh.addPr({ number: 12, headRefName: 'change/issue-3' })
+    h.gh.failed.set(11, [{ name: 'lint', url: null }])
+    await sync(h.deps)
+    expect(h.gh.issues.map(i => i.labels[0])).toEqual(['state:blocked', 'state:pr-review'])
+    expect(h.gh.comments.get(2)?.[0]?.body).toContain('CI failed on https://github.com/acme/app/pull/11: `lint`')
+  })
+})
