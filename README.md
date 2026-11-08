@@ -285,7 +285,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 - **Two users.** `runner` holds the GitHub credentials, state and logs and does every GitHub write and `git push`. `agent` runs Claude, installs and gates (agent-written code) through `sudo -u agent env -i …`, so it sees only Claude's own auth and the test service URLs. It can't read the runner's environment, `/data/state`, logs or the App key.
 - **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
 - **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own comments) reach prompts or move state.
-- **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. Verified at start (`example.com` must fail, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
+- **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
 - **Redaction** of tokens and keys in logs, comments, PR bodies and the digest.
 - The Docker socket is never mounted.
@@ -300,7 +300,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 - No `NET_ADMIN`/`NET_RAW` (check `cap_add`).
 - DNS for an allowed host failing at start.
 - A host your install needs that isn't allowed: add it to `EXTRA_ALLOWED_DOMAINS`.
-- PRs block with `could not read the CI log`: GitHub serves Actions logs from `productionresultssaN.blob.core.windows.net`, which the default firewall blocks. Automatic CI fixes need those hosts reachable. `EXTRA_ALLOWED_DOMAINS` would also open them to agent-run code, on shared Azure storage addresses, so weigh that first.
+- PRs block with `could not read the CI log`: check the App has **Actions** read, and look in the container log for `firewall: WARNING` about the runner-only rule. Don't add the log hosts to `EXTRA_ALLOWED_DOMAINS`: that opens them to agent code, and the firewall check then fails.
 
 `docker compose exec runner cat /data/state/firewall.json` shows the last result. Restart the container to re-run setup.
 

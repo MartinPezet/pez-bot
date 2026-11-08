@@ -11,7 +11,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 
 ## Next steps
 
-- **Open decision:** the egress firewall blocks CI log hosts (`productionresultssaN.blob.core.windows.net`), so every CI failure blocks until they're reachable. Proposed: an ipset for those hosts allowed only for the runner uid (10001), leaving agent code default-deny. Not applied: auto mode refused the edit batch containing it (no reason given), so it needs the owner's call and a real container test.
+- Test the runner-only firewall rule (ADR-0016) in a real container before relying on it: only syntax-checked so far, because Docker is broken on the dev machine. Expect `firewall: verified` with no `WARNING`, and a failed PR moving to `state:approved` rather than `state:blocked`.
 - Add **Checks: read**, **Commit statuses: read** and **Actions: read** to the GitHub App and re-approve the installation; until then CI reads fail (logged as `could not read CI status`) and nothing gets blocked.
 - Try `npm run ui` against the real container.
 - Review `docs/agents/INTENT.md` and the ADRs for anything misremembered from `PLAN.md`.

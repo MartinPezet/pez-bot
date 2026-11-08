@@ -49,7 +49,7 @@ Agents end with `NEEDS_DECISION:`, `NEEDS_SPLIT:` or `BLOCKED:`. The parser take
 
 ## Gotchas
 
-- **CI logs sit behind the firewall:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, which isn't allowlisted, so by default every CI failure blocks instead of being fixed. Annotations are reachable but often say only `Process completed with exit code 1`.
+- **CI logs need a firewall exception:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, allowed for the runner uid only (ADR-0016). Annotations are reachable from anywhere but often say only `Process completed with exit code 1`.
 - **Claude Code allowlist syntax** is `Bash(git diff *)` (space before `*`), not the older `Bash(git diff:*)`.
 - **`DISABLE_AUTOUPDATER=1`, never `DISABLE_UPDATES`**: the latter also blocks `claude update`/`claude install`, which the `update` job needs.
 - **An empty `--allowedTools` list makes the CLI reject the call.** Omit the flag instead.
