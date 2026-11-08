@@ -17,9 +17,9 @@ import { runDaemon, runNamed } from './scheduler.js'
 import { evaluateHealth, freeGb, readFirewall, type HealthInput } from './health.js'
 import { paths } from './paths.js'
 import { kv, openDb, type DB } from './state/db.js'
-import { currentRun, recentFinished, recentRuns } from './state/jobs.js'
+import { currentRun, failedRuns, recentFinished, recentRuns } from './state/jobs.js'
 import { lockHolder } from './state/lock.js'
-import { renderStatus, type ProjectConfigState, type UpdateRow, type UsageRow } from './status.js'
+import { renderFailures, renderStatus, type ProjectConfigState, type UpdateRow, type UsageRow } from './status.js'
 
 const HELP = `pez-bot — containerised backlog runner
 
@@ -29,6 +29,7 @@ Usage: pez-bot <command> [options]
   sync | work | triage        run that job once (work/triage accept --ignore-budget)
   summary | update | cleanup  run that job once
   status                      queue, jobs, versions, usage, disk, health
+  failures                    runs that ended error or blocked, newest first
   healthcheck                 exit 0 if healthy (used by Docker HEALTHCHECK)
   setup                       labels, Discussions checks, scaffolding PR
   migrate-prd [--path PRD.md] [--apply]
@@ -123,6 +124,23 @@ async function status(): Promise<number> {
         health: evaluateHealth(h),
       }),
     )
+    return 0
+  } finally {
+    db.close()
+  }
+}
+
+/** Failed runs, newest first. Read-only: skips the lease, like `status`. */
+function failures(): number {
+  const ctx = createContext() // registers the env secrets the redactor needs
+  if (!existsSync(ctx.paths.db)) {
+    console.log('No state database yet: start the daemon first.')
+    return 1
+  }
+  const db = openDb(ctx.paths.db, { readonly: true })
+  try {
+    const tz = kv.getJson<ProjectConfigState>(db, 'project.config')?.timezone ?? displayTz(ctx.env)
+    console.log(renderFailures(failedRuns(db), tz))
     return 0
   } finally {
     db.close()
@@ -251,6 +269,8 @@ export async function main(argv: string[]): Promise<number> {
       return healthcheck()
     case 'status':
       return status()
+    case 'failures':
+      return failures()
     case 'usage':
       return usage(argv.slice(1))
     case 'updates':

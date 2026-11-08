@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pez-bot</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: oklch(96.5% .008 85);
+    --panel: oklch(99% .004 85);
+    --ink: oklch(25% .012 85);
+    --muted: oklch(47% .012 85);
+    --rule: oklch(87% .01 85);
+    --hover: oklch(92% .012 85);
+    --error: oklch(50% .17 28);
+    --blocked: oklch(50% .11 70);
+    --ok: oklch(47% .1 150);
+    --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(21% .008 85);
+      --panel: oklch(17% .006 85);
+      --ink: oklch(91% .008 85);
+      --muted: oklch(70% .01 85);
+      --rule: oklch(32% .01 85);
+      --hover: oklch(28% .012 85);
+      --error: oklch(73% .15 28);
+      --blocked: oklch(79% .12 80);
+      --ok: oklch(77% .12 150);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, "Segoe UI", sans-serif;
+    display: grid;
+    grid-template-columns: 19rem minmax(0, 1fr);
+    height: 100dvh;
+  }
+  nav { overflow-y: auto; padding: 1.25rem 0 2rem; border-right: 1px solid var(--rule); }
+  h1 { font: 650 1.05rem/1 var(--mono); margin: 0 1.25rem 1.5rem; }
+  h2 {
+    font-size: .72rem; font-weight: 650; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); margin: 1.5rem 1.25rem .35rem;
+  }
+  h2.caution { color: var(--blocked); }
+  nav button {
+    display: block; width: 100%; padding: .4rem 1.25rem; border: 0; background: none; color: inherit;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  nav button:hover:not(:disabled) { background: var(--hover); }
+  nav button:disabled { cursor: progress; opacity: .6; }
+  nav button code { display: block; font: 550 .88rem/1.35 var(--mono); }
+  nav button small { color: var(--muted); font-size: .78rem; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+
+  main { display: grid; grid-template-rows: minmax(0, 3fr) minmax(0, 2fr); min-width: 0; }
+  section { display: flex; flex-direction: column; min-height: 0; }
+  section + section { border-top: 1px solid var(--rule); }
+  header {
+    display: flex; align-items: baseline; gap: .75rem; padding: .7rem 1.25rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  header h2 { margin: 0; }
+  header span { color: var(--muted); font-size: .78rem; margin-left: auto; }
+  header button { border: 0; background: none; color: var(--muted); font: inherit; font-size: .78rem; cursor: pointer; padding: 0; text-decoration: underline; }
+  header button:hover { color: var(--ink); }
+  .scroll { flex: 1; overflow: auto; background: var(--panel); }
+  .empty { color: var(--muted); padding: 1rem 1.25rem; margin: 0; }
+
+  .run + .run { border-top: 1px solid var(--rule); }
+  .run h3 { display: flex; gap: .75rem; margin: 0; padding: .6rem 1.25rem 0; font: 600 .85rem var(--mono); }
+  .run time { color: var(--muted); font-weight: 400; }
+  .run .state { margin-left: auto; font-weight: 500; }
+  .state.running { color: var(--muted); }
+  .state.good { color: var(--ok); }
+  .state.warn { color: var(--blocked); }
+  .state.bad { color: var(--error); }
+  pre {
+    margin: 0; padding: .35rem 1.25rem .8rem; font: .82rem/1.5 var(--mono);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  #failures { font: .82rem/1.55 var(--mono); padding: .4rem 0 .8rem; }
+  /* Wrapped details hang under the detail column: date, outcome, job and issue take 46ch. */
+  #failures div { padding: .05rem 1.25rem .05rem calc(1.25rem + 46ch); text-indent: -46ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #failures .error { color: var(--error); }
+  #failures .blocked { color: var(--blocked); }
+  #failures .problem, #failures .empty { padding-left: 1.25rem; text-indent: 0; }
+  #failures .problem { color: var(--error); }
+
+  @media (max-width: 760px) {
+    body { display: block; height: auto; }
+    nav { border-right: 0; border-bottom: 1px solid var(--rule); }
+    main { display: block; }
+    .scroll { max-height: 70vh; min-height: 8rem; }
+    #failures div { padding-left: 1.25rem; text-indent: 0; }
+  }
+</style>
+</head>
+<body>
+<nav id="commands" aria-label="Commands"><h1>pez-bot</h1></nav>
+<main>
+  <section aria-labelledby="output-title">
+    <header><h2 id="output-title">Output</h2><span><button id="clear" type="button">Clear</button></span></header>
+    <div class="scroll" id="output" role="log"><p class="empty" id="hint">Pick a command. Its output streams here.</p></div>
+  </section>
+  <section aria-labelledby="failures-title">
+    <header><h2 id="failures-title">Failed runs</h2><span id="checked"></span></header>
+    <div class="scroll" id="failures"></div>
+  </section>
+</main>
+<script>
+  // All command output and run details go in through textContent: they can hold agent-written text.
+  const $ = id => document.getElementById(id)
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag)
+    if (cls) e.className = cls
+    if (text !== undefined) e.textContent = text
+    return e
+  }
+  const clock = () => new Date().toLocaleTimeString('en-GB')
+  const EXIT = {
+    0: ['good', 'done'],
+    1: ['bad', 'exit 1: failed'],
+    64: ['bad', 'exit 64: bad usage'],
+    75: ['warn', 'exit 75: skipped, see output'],
+    78: ['bad', 'exit 78: bad environment'],
+  }
+
+  async function runCommand(c, button) {
+    if (c.confirm && !confirm(c.confirm)) return
+    button.disabled = true
+    $('hint')?.remove()
+    const state = el('span', 'state running', 'running…')
+    const heading = el('h3')
+    heading.append(el('span', '', `$ pez-bot ${c.cmd}`), el('time', '', clock()), state)
+    const pre = el('pre')
+    const block = el('div', 'run')
+    block.append(heading, pre)
+    $('output').prepend(block)
+
+    const finish = (cls, text) => {
+      state.className = `state ${cls}`
+      state.textContent = text
+    }
+    try {
+      const res = await fetch(`/api/run?cmd=${encodeURIComponent(c.cmd)}`, { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+      let all = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        all += value
+        // The trailer may still be arriving, so strip it from whatever has come in so far.
+        pre.textContent = all.replace(/\n?\[exit -?\d*\]?\n?$/, '')
+      }
+      const code = Number(all.match(/\[exit (-?\d+)\]\n$/)?.[1] ?? NaN)
+      const [cls, text] = EXIT[code] ?? ['bad', `exit ${code}`]
+      finish(cls, text)
+    } catch (e) {
+      finish('bad', 'lost connection; the command may still be running')
+      pre.textContent += `\n${e.message}`
+    }
+    button.disabled = false
+    refreshFailures()
+  }
+
+  async function refreshFailures() {
+    const box = $('failures')
+    let text, ok = false
+    try {
+      const res = await fetch('/api/failures')
+      ok = res.ok
+      text = await res.text()
+    } catch (e) {
+      text = `The UI server isn't responding: ${e.message}`
+    }
+    box.replaceChildren()
+    if (ok) {
+      for (const line of text.trimEnd().split('\n')) {
+        const m = line.match(/^\S+,? \S+\s+(error|blocked)\b/)
+        box.append(el('div', m ? m[1] : 'empty', line))
+      }
+    } else {
+      box.append(el('div', 'problem', `Can't read failed runs. Is the runner up? (docker compose up -d)\n\n${text.trim()}`))
+    }
+    $('checked').textContent = `checked ${clock()}`
+  }
+
+  async function loadCommands() {
+    const commands = await (await fetch('/api/commands')).json()
+    let group
+    for (const c of commands) {
+      if (c.group !== group) {
+        group = c.group
+        $('commands').append(el('h2', group === 'Ignore budget' ? 'caution' : '', group))
+      }
+      const b = el('button')
+      b.type = 'button'
+      b.append(el('code', '', c.cmd), el('small', '', c.about))
+      b.addEventListener('click', () => runCommand(c, b))
+      $('commands').append(b)
+    }
+  }
+
+  $('clear').addEventListener('click', () => $('output').replaceChildren())
+  loadCommands()
+  refreshFailures()
+  setInterval(() => { if (!document.hidden) refreshFailures() }, 30_000)
+</script>
+</body>
+</html>

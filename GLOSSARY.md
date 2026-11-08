@@ -104,3 +104,6 @@ The weekday 07:30 digest post describing queue state.
 
 **Dry run**:
 `DRY_RUN=1` mode where every GitHub write and push is logged instead of performed; Claude still runs.
+
+**Failed run**:
+A run of a job that ended `error` or `blocked`. Pauses and checkpoints don't count, because they recover by themselves.

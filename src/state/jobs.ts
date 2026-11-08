@@ -37,5 +37,9 @@ export const recentRuns = (db: DB, limit = 10): JobRun[] =>
 export const recentFinished = (db: DB, limit = 3): JobRun[] =>
   db.prepare('SELECT * FROM job_runs WHERE ended_at IS NOT NULL ORDER BY id DESC LIMIT ?').all(limit) as JobRun[]
 
+/** Runs that ended `error` or `blocked`, newest first. Pauses and checkpoints recover by themselves, so they're left out. */
+export const failedRuns = (db: DB, limit = 200): JobRun[] =>
+  db.prepare("SELECT * FROM job_runs WHERE outcome IN ('error', 'blocked') ORDER BY id DESC LIMIT ?").all(limit) as JobRun[]
+
 export const currentRun = (db: DB): JobRun | undefined =>
   db.prepare('SELECT * FROM job_runs WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1').get() as JobRun | undefined
