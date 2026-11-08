@@ -32,6 +32,12 @@ export interface PullRequest {
   closedAt: string | null
 }
 
+export interface FailedCheck {
+  name: string
+  /** Where the check reports. A GitHub Actions job URL means its log can be fetched. */
+  url: string | null
+}
+
 export interface LabelSpec {
   name: string
   color: string
@@ -59,8 +65,10 @@ export interface GitHub {
   issueComments(n: number): Promise<IssueComment[]>
   /** PRs in every state, newest first. */
   listPrs(): Promise<PullRequest[]>
-  /** Names of the failed checks on a PR's head commit; empty while CI is pending, green, or absent. */
-  failedChecks(pr: number): Promise<string[]>
+  /** The failed checks on a PR's head commit; empty while CI is pending, green, or absent. */
+  failedChecks(pr: number): Promise<FailedCheck[]>
+  /** A failed check's whole log, or null when it isn't a GitHub Actions job. Throws if the download fails. */
+  checkLog(check: FailedCheck): Promise<string | null>
   listLabels(): Promise<LabelSpec[]>
   addLabels(n: number, labels: string[]): Promise<void>
   removeLabel(n: number, label: string): Promise<void>
@@ -231,8 +239,8 @@ export class HttpGitHub implements GitHub {
     return items.map(toPr)
   }
 
-  async failedChecks(pr: number): Promise<string[]> {
-    type Ctx = { name?: string; conclusion?: string | null; context?: string; state?: string }
+  async failedChecks(pr: number): Promise<FailedCheck[]> {
+    type Ctx = { name?: string; conclusion?: string | null; detailsUrl?: string | null; context?: string; state?: string; targetUrl?: string | null }
     const r = await this.graphql<{
       repository: { pullRequest: { commits: { nodes: { commit: { statusCheckRollup: { state: string; contexts: { nodes: Ctx[] } } | null } }[] } } | null }
     }>(
@@ -242,8 +250,8 @@ export class HttpGitHub implements GitHub {
             commits(last: 1) { nodes { commit { statusCheckRollup {
               state
               contexts(first: 100) { nodes {
-                ... on CheckRun { name conclusion }
-                ... on StatusContext { context state }
+                ... on CheckRun { name conclusion detailsUrl }
+                ... on StatusContext { context state targetUrl }
               } }
             } } } }
           }
@@ -254,8 +262,19 @@ export class HttpGitHub implements GitHub {
     const rollup = r.repository.pullRequest?.commits.nodes[0]?.commit.statusCheckRollup
     if (!rollup || !['FAILURE', 'ERROR'].includes(rollup.state)) return []
     const bad = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'])
-    const names = rollup.contexts.nodes.filter(c => bad.has(c.conclusion ?? c.state ?? '')).map(c => c.name ?? c.context ?? '?')
-    return names.length ? names : ['(unnamed check)']
+    const failed = rollup.contexts.nodes
+      .filter(c => bad.has(c.conclusion ?? c.state ?? ''))
+      .map(c => ({ name: c.name ?? c.context ?? '?', url: c.detailsUrl ?? c.targetUrl ?? null }))
+    return failed.length ? failed : [{ name: '(unnamed check)', url: null }]
+  }
+
+  async checkLog(check: FailedCheck): Promise<string | null> {
+    const job = check.url?.match(/\/actions\/runs\/\d+\/job\/(\d+)/)?.[1]
+    if (!job) return null
+    // Redirects to a signed storage URL; fetch drops the Authorization header on the way.
+    const res = await this.request('GET', `${this.base}/actions/jobs/${job}/logs`)
+    if (!res.ok) throw new GitHubError(res.status, `GET job ${job} logs → ${res.status}`)
+    return redactor.string(await res.text())
   }
 
   async listLabels(): Promise<LabelSpec[]> {

@@ -37,6 +37,9 @@ describe('pickNext', () => {
     expect(pickNext(approved, ready, prs, wip)?.kind).toBe('build')
     const changePrs = [g.addPr({ number: 60, headRefName: 'change/issue-7' }), g.addPr({ number: 61, headRefName: 'change/issue-8' })]
     expect(pickNext(approved, [], changePrs, wip)).toBeNull()
+    // A CI fix reuses its open PR, so the limit doesn't hold it.
+    const ownPr = g.addPr({ number: 62, headRefName: `change/issue-${approved[0]?.number}` })
+    expect(pickNext(approved, [], [...changePrs, ownPr], wip)?.issue.number).toBe(approved[0]?.number)
   })
 })
 
@@ -244,6 +247,48 @@ describe('build', () => {
     const h = harness()
     approvedIssue(h, false)
     expect((await work(h.deps, { ignoreBudget: false })).outcome).toBe('blocked')
+  })
+
+  describe('after failed CI', () => {
+    function ciFix(h: ReturnType<typeof harness>) {
+      kv.set(h.db, 'cifix.failure.9', 'CI failed: boom in login test')
+      kv.set(h.db, 'cifix.attempts.9', '1')
+      h.gh.addIssue({ number: 9, title: 'Water strikes', labels: ['state:approved'] })
+      h.gh.addPr({ number: 70, headRefName: 'change/issue-9' })
+      h.wt.remote.add('change/issue-9')
+      const original = h.wt.resume.bind(h.wt)
+      h.wt.resume = async (b: string) => {
+        const r = await original(b)
+        writeChange(r.dir, 'issue-9-water-strikes')
+        return r
+      }
+    }
+
+    it('skips apply, fixes from the CI log, and pushes to the open PR', async () => {
+      const h = harness()
+      ciFix(h)
+      h.claude.then(req => {
+        expect(req.prompt).toContain('boom in login test')
+        h.wt.agentCommit(req.cwd, 'fix(login): handle it (#9)')
+        return { text: 'fixed' }
+      })
+      expect(await work(h.deps, { ignoreBudget: false })).toMatchObject({ outcome: 'ok', issue: 9 })
+      expect(h.claude.calls).toHaveLength(1)
+      expect(h.wt.pushed).toEqual(['change/issue-9'])
+      expect(h.gh.issues[0]?.labels).toEqual(['state:pr-review'])
+      expect(kv.get(h.db, 'cifix.failure.9')).toBeUndefined()
+      expect(kv.get(h.db, 'cifix.attempts.9')).toBe('1')
+      expect(h.digest.events.map(e => e.emoji)).toEqual(['🔧'])
+    })
+
+    it('blocks when the agent commits nothing, so the same red commit is not retried', async () => {
+      const h = harness()
+      ciFix(h)
+      h.claude.then(() => ({ text: 'nothing to do' }))
+      expect(await work(h.deps, { ignoreBudget: false })).toMatchObject({ outcome: 'blocked' })
+      expect(h.gh.issues[0]?.labels).toEqual(['state:blocked'])
+      expect(kv.get(h.db, 'cifix.failure.9')).toBeUndefined()
+    })
   })
 
   it('skips apply for an already-archived change and goes straight to gates', async () => {

@@ -126,7 +126,7 @@ describe('HttpGitHub', () => {
                   commit: {
                     statusCheckRollup: state && {
                       state,
-                      contexts: { nodes: [{ name: 'e2e', conclusion: 'FAILURE' }, { name: 'unit', conclusion: 'SUCCESS' }, { context: 'ci/legacy', state: 'ERROR' }, { name: 'slow', conclusion: null }] },
+                      contexts: { nodes: [{ name: 'e2e', conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/1/job/2' }, { name: 'unit', conclusion: 'SUCCESS' }, { context: 'ci/legacy', state: 'ERROR', targetUrl: 'https://ci.example/3' }, { name: 'slow', conclusion: null }] },
                     },
                   },
                 }],
@@ -136,9 +136,21 @@ describe('HttpGitHub', () => {
         },
       },
     })
-    expect(await gh(fakeFetch(() => rollup('FAILURE')).fn).failedChecks(10)).toEqual(['e2e', 'ci/legacy'])
+    expect(await gh(fakeFetch(() => rollup('FAILURE')).fn).failedChecks(10)).toEqual([
+      { name: 'e2e', url: 'https://github.com/acme/app/actions/runs/1/job/2' },
+      { name: 'ci/legacy', url: 'https://ci.example/3' },
+    ])
     expect(await gh(fakeFetch(() => rollup('PENDING')).fn).failedChecks(10)).toEqual([])
     expect(await gh(fakeFetch(() => rollup(null)).fn).failedChecks(10)).toEqual([])
+  })
+
+  it('reads an Actions job log, returns null for other checks, and throws on a failed download', async () => {
+    const job = { name: 'e2e', url: 'https://github.com/acme/app/actions/runs/1/job/2' }
+    const { fn, calls } = fakeFetch(() => ({ text: 'the log' }))
+    expect(await gh(fn).checkLog(job)).toBe('the log')
+    expect(calls[0]?.url).toContain('/repos/acme/app/actions/jobs/2/logs')
+    expect(await gh(fn).checkLog({ name: 'ci/legacy', url: 'https://ci.example/3' })).toBeNull()
+    await expect(gh(fakeFetch(() => ({ status: 403, text: 'no' })).fn).checkLog(job)).rejects.toThrow('403')
   })
 })
 

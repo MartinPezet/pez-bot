@@ -1,14 +1,15 @@
 import { partitionByAuthor } from '../github/authors.js'
-import type { Issue, PullRequest } from '../github/client.js'
+import type { FailedCheck, Issue, PullRequest } from '../github/client.js'
 import { setState, stateOf } from '../github/labels.js'
+import { tail } from '../exec/run.js'
 import { kv } from '../state/db.js'
-import { block } from './common.js'
+import { block, CI_FIX_ATTEMPTS, CI_FIX_FAILURE } from './common.js'
 import type { Deps, JobResult } from './types.js'
 
 /**
  * No Claude. Recovers issues left mid-job by a dead run (requeue, or block on the second time
- * in 24 h), promotes proposal PRs (merged → approved, closed → needs-decision), blocks issues whose
- * open review PR failed CI, and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
+ * in 24 h), promotes proposal PRs (merged → approved, closed → needs-decision), handles review PRs
+ * that failed CI (back to the build with the log, or blocked), and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
  */
 export async function sync(d: Deps): Promise<JobResult> {
   const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors)
@@ -27,7 +28,7 @@ export async function sync(d: Deps): Promise<JobResult> {
     if (await promote(d, issue, prs)) changed++
   }
   for (const issue of allowed.filter(i => stateOf(i) === 'state:proposal-review' || stateOf(i) === 'state:pr-review')) {
-    if (await blockOnFailedCi(d, issue, prs)) changed++
+    if (await handleFailedCi(d, issue, prs)) changed++
   }
   return { outcome: changed ? 'ok' : 'noop', detail: `${changed} issue(s) moved` }
 }
@@ -75,8 +76,12 @@ export async function promote(d: Deps, issue: Issue, prs: PullRequest[]): Promis
   return true
 }
 
-/** A review PR with failed CI isn't ready for review; pending or green CI leaves it alone. */
-async function blockOnFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promise<boolean> {
+/**
+ * A review PR with failed CI isn't ready for review; pending or green CI leaves it alone.
+ * An implementation PR goes back to the build with the CI log, up to `maxFixAttempts` times.
+ * Everything else blocks: proposals (rarely their fault), no readable log (a fix would be blind).
+ */
+async function handleFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promise<boolean> {
   const n = issue.number
   const pr = prs.find(p => p.state === 'OPEN' && (p.headRefName === `change/issue-${n}` || p.headRefName.startsWith(`proposal/issue-${n}-`)))
   if (!pr) return false
@@ -86,8 +91,40 @@ async function blockOnFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promi
     return []
   })
   if (!failed.length) return false
-  await block(d, issue, `CI failed on ${pr.url}: ${failed.map(c => `\`${c}\``).join(', ')}. Fix it on \`${pr.headRefName}\`.`)
+
+  const names = failed.map(c => `\`${c.name}\``).join(', ')
+  const failure = `CI failed on ${pr.url}: ${names}.`
+  const stop = async (why: string) => {
+    await block(d, issue, `${failure}${why} Fix it on \`${pr.headRefName}\`.`)
+    return true
+  }
+  if (stateOf(issue) !== 'state:pr-review') return stop('')
+
+  // ponytail: attempts count per issue until it blocks, so green CI in between doesn't reset them.
+  const attempts = Number(kv.get(d.db, CI_FIX_ATTEMPTS(n)) ?? 0)
+  if (attempts >= d.project.maxFixAttempts) return stop(` Gave up after ${attempts} fix attempt(s).`)
+  const logs = await ciLogs(d, failed)
+  if (!logs) return stop(' The runner could not read the CI log, so it did not try a fix.')
+
+  kv.set(d.db, CI_FIX_ATTEMPTS(n), String(attempts + 1))
+  kv.set(d.db, CI_FIX_FAILURE(n), `${failure} This ran on GitHub Actions, so it may not reproduce locally.\n\n${logs}`)
+  await setState(d.gh, issue, 'state:approved')
+  await d.gh.comment(n, `🔁 ${failure} Sending it back to the runner to fix (attempt ${attempts + 1} of ${d.project.maxFixAttempts}).`)
+  d.digest.add('🔁', `CI failed on #${n} ${issue.title}; sent back to fix (${names.replace(/`/g, '')})`, pr.url)
   return true
+}
+
+/** Log tails of the failed jobs for the fix prompt, bounded because the prompt is one process argument. */
+async function ciLogs(d: Deps, failed: FailedCheck[]): Promise<string> {
+  const parts: string[] = []
+  for (const check of failed.slice(0, 3)) {
+    const log = await d.gh.checkLog(check).catch(err => {
+      d.log.warn({ err, check: check.name }, 'could not read CI log')
+      return null
+    })
+    if (log) parts.push(`--- ${check.name} ---\n${tail(log, 200).slice(-20_000)}`)
+  }
+  return parts.join('\n\n')
 }
 
 /** Issues by other authors are never processed; say so once per issue. */

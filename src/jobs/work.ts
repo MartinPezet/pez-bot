@@ -18,6 +18,7 @@ const openWith = (prs: PullRequest[], prefix: string) => prs.filter(p => p.state
 /**
  * Pure: the next item, honouring WIP limits. Order: urgent first, then builds before proposals
  * (finish work before starting new work), then priority, then age. Urgent never bypasses WIP.
+ * A build whose PR is already open adds nothing to review (a CI fix), so WIP doesn't hold it.
  */
 export function pickNext(
   approved: Issue[],
@@ -26,7 +27,9 @@ export function pickNext(
   wip: { proposalsInReview: number; prsInReview: number },
 ): Candidate | null {
   const cands: Candidate[] = [
-    ...(openWith(prs, 'change/') < wip.prsInReview ? approved.map(issue => ({ kind: 'build' as const, issue })) : []),
+    ...approved
+      .filter(i => openWith(prs, 'change/') < wip.prsInReview || prs.some(p => p.state === 'OPEN' && p.headRefName === `change/issue-${i.number}`))
+      .map(issue => ({ kind: 'build' as const, issue })),
     ...(openWith(prs, 'proposal/') < wip.proposalsInReview ? ready.map(issue => ({ kind: 'propose' as const, issue })) : []),
   ]
   cands.sort(

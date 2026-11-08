@@ -43,8 +43,13 @@ The Claude wrapper watches the stream-json output. On `rate_limit_event.status =
 
 Agents end with `NEEDS_DECISION:`, `NEEDS_SPLIT:` or `BLOCKED:`. The parser takes the **last** match in the final result text (multiline `^(NEEDS_DECISION|NEEDS_SPLIT|BLOCKED):\s*(.*)`), because agents sometimes quote the protocol earlier. Triage instead returns `--json-schema` output, re-validated with zod.
 
+## CI on review PRs
+
+`sync` reads the status check rollup of each open review PR. A failed implementation PR gets its log tail stored in `kv` and returns to `approved`; the next build skips apply, seeds the fix loop with that log, and pushes to the same PR. WIP limits don't hold it, because it adds no PR. Attempts are capped by `maxFixAttempts`, and `block()` clears them. A failed proposal PR or an unreadable log blocks straight away.
+
 ## Gotchas
 
+- **CI logs sit behind the firewall:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, which isn't allowlisted, so by default every CI failure blocks instead of being fixed. Annotations are reachable but often say only `Process completed with exit code 1`.
 - **Claude Code allowlist syntax** is `Bash(git diff *)` (space before `*`), not the older `Bash(git diff:*)`.
 - **`DISABLE_AUTOUPDATER=1`, never `DISABLE_UPDATES`**: the latter also blocks `claude update`/`claude install`, which the `update` job needs.
 - **An empty `--allowedTools` list makes the CLI reject the call.** Omit the flag instead.

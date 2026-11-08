@@ -70,7 +70,7 @@ A command from `.backlog-runner.json` `gates` that must pass before a build open
 _Avoid_: check, CI (CI is GitHub's; gates run inside the container)
 
 **Fix loop**:
-Up to `maxFixAttempts` Claude rounds that repair failing gates.
+Up to `maxFixAttempts` Claude rounds that repair failing gates, or a failed CI run on the item's open PR.
 
 **Checkpoint**:
 Work in progress committed and pushed to `change/issue-N` when a job is interrupted, so the next build resumes.

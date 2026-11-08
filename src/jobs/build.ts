@@ -4,7 +4,7 @@ import type { Issue } from '../github/client.js'
 import { isUrgent, setState } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import {
-  agentEnv, askClaude, block, FATAL_CLAUDE_ERRORS, gatesText, isPause, pause, pushAndOpenPr,
+  agentEnv, askClaude, block, CI_FIX_FAILURE, FATAL_CLAUDE_ERRORS, gatesText, isPause, pause, pushAndOpenPr,
   resetTestServices, runGates, stopSignal, sumCost, testServiceProblems,
 } from './common.js'
 import { kv } from '../state/db.js'
@@ -23,6 +23,7 @@ export function findChange(dir: string, n: number): { id: string; archived: bool
 /**
  * Approved change → apply → gates → fix loop → implementation PR. Resumes from an existing
  * `change/issue-N` branch (merging the default branch in first); paused runs are pushed there.
+ * After failed CI (sync records it) it skips apply and starts the fix loop from the CI log.
  */
 export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean }): Promise<JobResult> {
   const n = issue.number
@@ -69,9 +70,11 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
     DEFAULT_BRANCH: d.branch,
     GATES: gatesText(d),
   }
+  const ciFailure = kv.get(d.db, CI_FIX_FAILURE(n))
+  const commitsBefore = await d.wt.commitsAhead(dir)
   let cost = { estCostUsd: 0, turns: 0 }
   let text = ''
-  if (!change.archived) {
+  if (!change.archived && !ciFailure) {
     const res = await askClaude(d, { model: 'build', tools: 'build', prompt: await d.prompt('apply', vars), cwd: dir, urgent, ignoreBudget: o.ignoreBudget })
     cost = sumCost(cost, res)
     if (isPause(res)) return { ...(await pause(d, issue, res, 'state:approved', dir, branch)), ...cost }
@@ -86,7 +89,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
 
   let sig = stopSignal(text)
   await resetTestServices(d)
-  let gate = sig ? { ok: false, log: '' } : await runGates(d, dir)
+  let gate = sig ? { ok: false, log: '' } : ciFailure ? { ok: false, log: ciFailure } : await runGates(d, dir)
   for (let i = 0; !sig && !gate.ok && i < d.project.maxFixAttempts; i++) {
     d.log.info({ issue: n, attempt: i + 1 }, 'gates failed, fixing')
     const fix = await askClaude(d, {
@@ -111,13 +114,18 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
     }
   }
   if ((await d.wt.commitsAhead(dir)) === 0) return { ...(await block(d, issue, 'Agent produced no commits.', dir)), ...cost }
+  // Pushing nothing would leave the same red commit for sync to find again.
+  if (ciFailure && (await d.wt.commitsAhead(dir)) === commitsBefore) {
+    return { ...(await block(d, issue, `Agent made no commits to fix CI:\n\n${text.slice(0, 2000)}`, dir)), ...cost }
+  }
 
   const url = await pushAndOpenPr(
     d, dir, branch, `${issue.title} (#${n})`,
     `Implements \`openspec/changes/${change.id}\`.\n\n${text.slice(0, 4000)}\n\n✅ Gates passed: ${gatesText(d)}\n\nCloses #${n}`,
   )
   await setState(d.gh, issue, 'state:pr-review')
-  await d.gh.comment(n, `✅ Implementation PR ready: ${url}`)
-  d.digest.add('🚀', `Implementation PR opened for #${n} ${issue.title}`, url)
+  kv.del(d.db, CI_FIX_FAILURE(n))
+  await d.gh.comment(n, ciFailure ? `🔧 Pushed a CI fix: ${url}` : `✅ Implementation PR ready: ${url}`)
+  d.digest.add(ciFailure ? '🔧' : '🚀', `${ciFailure ? 'CI fix pushed' : 'Implementation PR opened'} for #${n} ${issue.title}`, url)
   return { outcome: 'ok', issue: n, detail: url, worktree: dir, ...cost }
 }
