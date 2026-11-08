@@ -1,4 +1,5 @@
 import type { HealthCheck } from './health.js'
+import { redactor } from './redact.js'
 import type { JobRun } from './state/jobs.js'
 import type { Lease } from './state/lock.js'
 
@@ -54,6 +55,17 @@ const ago = (iso: string, now: Date) => {
   return min < 120 ? `${min} min ago` : `${Math.round(min / 60)} h ago`
 }
 const pad = (s: string, n: number) => s.padEnd(n)
+
+/** One line per failed run. `detail` can hold raw error text, so it is redacted and kept to one line. */
+export function renderFailures(runs: JobRun[], tz: string): string {
+  if (runs.length === 0) return 'No failed runs.'
+  return runs
+    .map(r => {
+      const detail = redactor.string(r.detail ?? '').replace(/\s+/g, ' ').trim()
+      return `${fmt(r.ended_at ?? r.started_at, tz)}  ${pad(r.outcome ?? '', 8)}${pad(r.job, 12)}${pad(r.issue ? `#${r.issue}` : '', 7)}${detail}`.trimEnd()
+    })
+    .join('\n')
+}
 
 /** Pure text rendering so it can be tested without a container. */
 export function renderStatus(s: StatusData): string {

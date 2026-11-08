@@ -23,7 +23,7 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
    postgres-test     redis-test
 ```
 
-`src/` folders map one-to-one onto the boxes above.
+`src/` folders map one-to-one onto the boxes above. `ui/` sits outside the box and the image: a host-side page that drives the container through `docker compose exec` (ADR-0015).
 
 ## State
 

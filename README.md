@@ -32,6 +32,7 @@ Labels are the state machine. PR merges are the only approvals.
 - [First run](#first-run)
 - [Your daily loop](#your-daily-loop)
 - [Commands](#commands)
+- [Local UI](#local-ui)
 - [Testing against a sandbox repo](#testing-against-a-sandbox-repo)
 - [Environment variables](#environment-variables)
 - [Project config: `.backlog-runner.json`](#project-config-backlog-runnerjson)
@@ -156,6 +157,7 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | `update` | Update Claude Code, OpenSpec and Superpowers, with smoke test and rollback. |
 | `cleanup` | Worktrees, merged/closed branches, logs, transcripts, SQLite vacuum; disk guard. |
 | `status` | Queue counts, current and recent jobs, costs, versions, usage, gate, next window, disk, health. |
+| `failures` | Failed runs (`error` or `blocked`), newest first, latest 200, redacted. |
 | `setup` | Labels, Discussions checks, scaffolding PR. |
 | `migrate-prd [--path PRD.md] [--ignore-budget]` | PRD → `backlog.json` PR. |
 | `migrate-prd --apply` | Create issues from the merged `backlog.json`. |
@@ -164,6 +166,24 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | `healthcheck` | Exit 0 if healthy (the Docker `HEALTHCHECK`). |
 
 Schedule (in the project's time zone): `sync` every 20 min, `work` every 5 min and continuously while it finds work inside a window, `triage` at the start of each window, `summary` weekdays 07:30, `update` 03:00 and on start, `cleanup` 04:00 and after every job. Override with `schedule` in `.backlog-runner.json` (restart to apply).
+
+## Local UI
+
+A page for running these commands and reading failed runs. It runs on the machine with Docker access, from this checkout:
+
+```bash
+npm ci
+npm run ui    # http://localhost:8377
+```
+
+Each button runs `docker compose exec -T runner pez-bot <command>` and streams the output. Closing the tab doesn't stop a running job. `--ignore-budget` runs and `migrate-prd --apply` ask first. `daemon` isn't offered, and `migrate-prd --path` still needs the CLI. The failed-runs log refreshes every 30 seconds and after each command.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PEZ_BOT_UI_PORT` | `8377` | Port, on `127.0.0.1` only. |
+| `PEZ_BOT_UI_EXEC` | `docker compose exec -T runner pez-bot` | How to reach the CLI. For a server deployment: `docker compose -f deploy/docker-compose.yml exec -T runner pez-bot`, or an `ssh` prefix. |
+
+These are set in your shell, not `.env`. There's no login: any local user or process on that machine can reach the port and run these commands, so use it only on a machine that's yours, and don't tunnel or proxy it to a wider network.
 
 ## Testing against a sandbox repo
 
@@ -268,6 +288,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
 - **Redaction** of tokens and keys in logs, comments, PR bodies and the digest.
 - The Docker socket is never mounted.
+- **Nothing listens in the container.** The [local UI](#local-ui) runs on the host, so agent-written code can't reach it. It binds to `127.0.0.1`, runs only a fixed list of commands, and refuses requests with a foreign `Host` or `Origin`.
 
 ## Troubleshooting
 
