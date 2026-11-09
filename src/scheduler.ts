@@ -8,6 +8,7 @@ import { heartbeat, queueDigest, refreshProject, runJob } from './jobs/runner.js
 import type { JobResult } from './jobs/types.js'
 import { kv, openDb, type DB } from './state/db.js'
 import { acquireLock, releaseLock } from './state/lock.js'
+import { startUi } from './ui/server.js'
 import { parseWindows, windowAt } from './windows/windows.js'
 
 const DOWNTIME_MIN = 30
@@ -85,6 +86,16 @@ const waitForSignal = (ctx: Ctx) =>
   })
 
 export async function runDaemon(ctx: Ctx): Promise<number> {
+  // Started first so it also works in degraded mode, where `status` says what's wrong.
+  const stopUi = startUi(ctx.log)
+  try {
+    return await schedule(ctx)
+  } finally {
+    await stopUi()
+  }
+}
+
+async function schedule(ctx: Ctx): Promise<number> {
   const db = openDb(ctx.paths.db)
   if (!ctx.env.ok) return degraded(db, ctx, ctx.env.errors)
   const env = ctx.env.value

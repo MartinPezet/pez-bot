@@ -1,15 +1,19 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import type { Logger } from '../log.js'
 
 /**
- * Local operator page. Runs on the host and shells out to the CLI, so nothing listens inside
- * the container, where agent-written code could reach it (ADR-0015).
+ * Operator page, served by the daemon when UI_TOKEN is set (ADR-0017). Its commands are the CLI
+ * run as a child process, so they take the lease and behave exactly as they do from a terminal.
  */
 
-/** The only commands the page can run. `daemon` is left out: it's the container's entrypoint. */
+/** docker/init-firewall.sh opens this port and blocks the agent user from it. Keep them in step. */
+export const UI_PORT = 8377
+const MIN_TOKEN_LENGTH = 16
+
+/** The only commands the page can run. `daemon` is left out: it's already running. */
 export const COMMANDS: { group: string; cmd: string; about: string; confirm?: string }[] = [
   { group: 'Inspect', cmd: 'status', about: 'Queue, jobs, usage, health' },
   { group: 'Inspect', cmd: 'usage', about: 'Gauge, gate and windows' },
@@ -32,38 +36,61 @@ export const COMMANDS: { group: string; cmd: string; about: string; confirm?: st
 
 export type RunCli = (args: string[], out: (chunk: Buffer | string) => void) => Promise<number>
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url))
-
-export function cliRunner(prefix: string): RunCli {
-  const [bin = 'docker', ...pre] = prefix.trim().split(/\s+/)
-  return (args, out) =>
-    new Promise(resolve => {
-      const child = spawn(bin, [...pre, ...args], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
+/** Runs this process's own CLI. `stop` asks running commands to finish, so a job can checkpoint. */
+function cliRunner(): { run: RunCli; stop(): Promise<unknown> } {
+  const { UI_TOKEN: _, ...env } = process.env
+  const cli = [...process.execArgv, realpathSync(process.argv[1] ?? '')]
+  const running = new Map<ChildProcess, Promise<number>>()
+  return {
+    run(args, out) {
+      const child = spawn(process.execPath, [...cli, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] })
       child.stdout.on('data', out)
       child.stderr.on('data', out)
-      child.once('error', e => {
-        out(`could not start ${bin}: ${e.message}\n`)
-        resolve(127)
-      })
-      child.once('close', code => resolve(code ?? 1))
-    })
+      const done = new Promise<number>(resolve => {
+        child.once('error', e => {
+          out(`could not start the command: ${e.message}\n`)
+          resolve(127)
+        })
+        child.once('close', code => resolve(code ?? 1))
+      }).finally(() => running.delete(child))
+      running.set(child, done)
+      return done
+    },
+    stop() {
+      for (const child of running.keys()) child.kill('SIGTERM')
+      return Promise.all(running.values())
+    },
+  }
 }
 
-/** Host check stops DNS rebinding; Origin check stops other sites POSTing to localhost. */
-function trusted(req: IncomingMessage, port: number): boolean {
-  const host = req.headers.host ?? ''
-  if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return false
-  return req.method === 'GET' || req.headers.origin === `http://${host}`
+const sha256 = (s: string) => createHash('sha256').update(s).digest()
+
+/** HTTP Basic: the password is UI_TOKEN and the username is ignored. */
+function authorized(req: IncomingMessage, token: string): boolean {
+  const [scheme = '', encoded = ''] = (req.headers.authorization ?? '').split(' ')
+  if (scheme.toLowerCase() !== 'basic') return false
+  const decoded = Buffer.from(encoded, 'base64').toString()
+  return timingSafeEqual(sha256(decoded.slice(decoded.indexOf(':') + 1)), sha256(token))
+}
+
+/** A browser caches Basic credentials, so other sites' POSTs would carry them: require our own Origin. */
+function sameOrigin(req: IncomingMessage): boolean {
+  const { host, origin } = req.headers
+  return origin === `http://${host}` || origin === `https://${host}`
 }
 
 const PAGE_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'"
 
-export function createUi(run: RunCli): Server {
+export function createUi(run: RunCli, token: string): Server {
   const page = readFileSync(new URL('page.html', import.meta.url))
   const commands = new Set(COMMANDS.map(c => c.cmd))
 
-  const server = createServer((req, res) => {
-    if (!trusted(req, (server.address() as AddressInfo).port)) {
+  return createServer((req, res) => {
+    if (!authorized(req, token)) {
+      res.writeHead(401, { 'www-authenticate': 'Basic realm="pez-bot", charset="UTF-8"' }).end('password required')
+      return
+    }
+    if (req.method !== 'GET' && !sameOrigin(req)) {
       res.writeHead(403).end('forbidden')
       return
     }
@@ -92,14 +119,27 @@ export function createUi(run: RunCli): Server {
       res.writeHead(404).end('not found')
     }
   })
-  return server
 }
 
-// realpath: matches how src/cli.ts detects being run directly.
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const port = Number(process.env.PEZ_BOT_UI_PORT ?? 8377)
-  const prefix = process.env.PEZ_BOT_UI_EXEC ?? 'docker compose exec -T runner pez-bot'
-  createUi(cliRunner(prefix)).listen(port, '127.0.0.1', () => {
-    console.log(`pez-bot UI: http://localhost:${port}  (runs: ${prefix} <command>)`)
-  })
+/** Serves the page if UI_TOKEN is set. Returns how to stop it, and any command it started. */
+export function startUi(log: Logger): () => Promise<void> {
+  const token = process.env.UI_TOKEN
+  if (!token) return async () => {}
+  if (token.length < MIN_TOKEN_LENGTH) {
+    log.error(`UI_TOKEN is shorter than ${MIN_TOKEN_LENGTH} characters: the UI is not started`)
+    return async () => {}
+  }
+  const cli = cliRunner()
+  const server = createUi((args, out) => {
+    if (args[0] !== 'failures') log.info({ args }, 'ui: running command') // the page polls failures
+    return cli.run(args, out)
+  }, token)
+  server.on('error', e => log.error({ err: e }, 'ui server failed'))
+  // All interfaces: Docker's published port arrives on the container's network address.
+  server.listen(UI_PORT, '0.0.0.0', () => log.info({ port: UI_PORT }, 'ui listening'))
+  return async () => {
+    server.close()
+    await cli.stop()
+    server.closeAllConnections()
+  }
 }

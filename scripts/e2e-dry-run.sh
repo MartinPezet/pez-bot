@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.."
 [ -f .env ] || { echo "e2e: create .env first (cp .env.example .env)" >&2; exit 1; }
 
 project=pez-bot-e2e
+export UI_PUBLISH=127.0.0.1: # any free host port, so a real runner's UI doesn't clash
 override=$(mktemp)
 trap 'rm -f "$override"' EXIT
 cat >"$override" <<EOF
@@ -53,6 +54,11 @@ done
 
 step "firewall blocks other hosts" 1 6 7 28 35 -- dc exec -T runner curl -s --connect-timeout 5 -o /dev/null https://example.com
 step "firewall allows GitHub" 0 -- dc exec -T runner curl -s --connect-timeout 5 -o /dev/null https://api.github.com/zen
+if grep -q '^UI_TOKEN=.' .env; then
+  # Curl exits 0 on the 401: the port answers root, so the agent's failure below is the firewall.
+  step "UI is listening" 0 -- dc exec -T runner curl -s --connect-timeout 5 -o /dev/null http://127.0.0.1:8377/
+  step "firewall blocks the agent user from the UI" 7 28 -- dc exec -T -u agent runner curl -s --connect-timeout 5 -o /dev/null http://127.0.0.1:8377/
+fi
 step "setup" 0 -- pb setup
 step "sync" 0 75 -- pb sync
 step "summary" 0 75 -- pb summary

@@ -33,7 +33,7 @@ Labels are the state machine. PR merges are the only approvals.
 - [First run](#first-run)
 - [Your daily loop](#your-daily-loop)
 - [Commands](#commands)
-- [Local UI](#local-ui)
+- [Web UI](#web-ui)
 - [Testing against a sandbox repo](#testing-against-a-sandbox-repo)
 - [Environment variables](#environment-variables)
 - [Project config: `.backlog-runner.json`](#project-config-backlog-runnerjson)
@@ -168,23 +168,33 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 
 Schedule (in the project's time zone): `sync` every 20 min, `work` every 5 min and continuously while it finds work inside a window, `triage` at the start of each window, `summary` weekdays 07:30, `update` 03:00 and on start, `cleanup` 04:00 and after every job. Override with `schedule` in `.backlog-runner.json` (restart to apply).
 
-## Local UI
+## Web UI
 
-A page for running these commands and reading failed runs. It runs on the machine with Docker access, from this checkout:
+A page for running these commands and reading failed runs, served by the runner container. It needs nothing on the server beyond Docker, and it's off until you set a password.
+
+1. Add a password to `.env`, then restart with `docker compose up -d`:
+
+   ```bash
+   UI_TOKEN=<output of: openssl rand -hex 32>
+   ```
+
+2. From your own machine, open a tunnel to the server:
+
+   ```bash
+   ssh -L 8377:localhost:8377 your-server
+   ```
+
+3. Open `http://localhost:8377`. The browser asks for a login: enter anything as the username and `UI_TOKEN` as the password. On the server itself, skip the tunnel.
+
+Each button runs that command in the container and streams the output. Closing the tab doesn't stop a running job. `--ignore-budget` runs and `migrate-prd --apply` ask first. `daemon` isn't offered, and `migrate-prd --path` still needs the CLI. The failed-runs log refreshes every 30 seconds and after each command.
+
+The page is plain HTTP, so `UI_PUBLISH` keeps it on the server's loopback by default. Anyone who can reach the port and has the password can run these commands, including `--ignore-budget`. If you publish it more widely, put it behind TLS, or the password crosses your network in the clear.
+
+To check agent code can't reach it, run this on the server. It should fail with curl exit code 7 and no HTTP response:
 
 ```bash
-npm ci
-npm run ui    # http://localhost:8377
+docker compose exec -u agent runner curl -sS --connect-timeout 5 http://127.0.0.1:8377/
 ```
-
-Each button runs `docker compose exec -T runner pez-bot <command>` and streams the output. Closing the tab doesn't stop a running job. `--ignore-budget` runs and `migrate-prd --apply` ask first. `daemon` isn't offered, and `migrate-prd --path` still needs the CLI. The failed-runs log refreshes every 30 seconds and after each command.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PEZ_BOT_UI_PORT` | `8377` | Port, on `127.0.0.1` only. |
-| `PEZ_BOT_UI_EXEC` | `docker compose exec -T runner pez-bot` | How to reach the CLI. For a server deployment: `docker compose -f deploy/docker-compose.yml exec -T runner pez-bot`, or an `ssh` prefix. |
-
-These are set in your shell, not `.env`. There's no login: any local user or process on that machine can reach the port and run these commands, so use it only on a machine that's yours, and don't tunnel or proxy it to a wider network.
 
 ## Testing against a sandbox repo
 
@@ -228,6 +238,8 @@ Account-level settings live in `.env`, not in project config, because the usage 
 | `MIN_FREE_DISK_GB` | `10` | Disk guard threshold. |
 | `HEALTH_PING_URL` | | healthchecks.io / Uptime Kuma push URL: pinged after each job, `/fail` on errors. Its host is added to the firewall. |
 | `EXTRA_ALLOWED_DOMAINS` | | Comma-separated extra hosts for the egress firewall (for example a private registry your install needs). |
+| `UI_TOKEN` | | Password for the [web UI](#web-ui), at least 16 characters. Unset: no UI. |
+| `UI_PUBLISH` | `127.0.0.1:8377` | Host address and port for the web UI (compose). |
 | `INSTALL_SUPERPOWERS` | `false` | Install and update the Superpowers plugin. |
 | `CLAUDE_CHANNEL` | `stable` | Claude Code release channel used by `update`. |
 | `LOG_LEVEL` | `info` | |
@@ -289,7 +301,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
 - **Redaction** of tokens and keys in logs, comments, PR bodies and the digest.
 - The Docker socket is never mounted.
-- **Nothing listens in the container.** The [local UI](#local-ui) runs on the host, so agent-written code can't reach it. It binds to `127.0.0.1`, runs only a fixed list of commands, and refuses requests with a foreign `Host` or `Origin`.
+- **The [web UI](#web-ui) is off by default.** Nothing listens in the container unless `UI_TOKEN` is set. When it is, every request needs that password, which the agent user can't read, and only a fixed list of commands runs. POSTs with a foreign `Origin` are refused. The firewall rejects the agent user from the port, and if that rule can't be added the firewall check fails and Claude jobs are refused. The port is published on the host's `127.0.0.1` by default.
 
 ## Troubleshooting
 
