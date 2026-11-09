@@ -18,6 +18,7 @@ IFS=$'\n\t'
 MODE=${1:-init}
 STATE_FILE=${FIREWALL_STATE_FILE:-/data/state/firewall.json}
 SET=allowed-domains
+UI_PORT=8377
 
 DOMAINS=(
   api.anthropic.com platform.claude.com claude.ai downloads.claude.ai storage.googleapis.com
@@ -140,6 +141,14 @@ init() {
     ip6tables -A INPUT -i lo -j ACCEPT
     ip6tables -A OUTPUT -o lo -j ACCEPT
     ip6tables -P INPUT DROP; ip6tables -P FORWARD DROP; ip6tables -P OUTPUT DROP
+  fi
+
+  # The web UI (src/ui/server.ts). Agent code shares this network namespace, so the agent user is
+  # rejected first, ahead of the loopback rule. Required: without it the UI is open to agent code.
+  if [ -n "${UI_TOKEN:-}" ]; then
+    iptables -A OUTPUT -p tcp --dport "$UI_PORT" -m owner --uid-owner agent -j REJECT ||
+      fail "can't block the agent user from the UI port: unset UI_TOKEN to run without the UI"
+    iptables -A INPUT -p tcp --dport "$UI_PORT" -j ACCEPT
   fi
 
   # Loopback, which also carries Docker's embedded DNS (127.0.0.11).

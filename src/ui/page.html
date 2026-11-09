@@ -123,6 +123,8 @@
     if (text !== undefined) e.textContent = text
     return e
   }
+  // Absolute: fetch refuses relative URLs on a page opened as http://user:pass@host/.
+  const api = (path, init) => fetch(location.origin + path, init)
   const clock = () => new Date().toLocaleTimeString('en-GB')
   const EXIT = {
     0: ['good', 'done'],
@@ -149,7 +151,7 @@
       state.textContent = text
     }
     try {
-      const res = await fetch(`/api/run?cmd=${encodeURIComponent(c.cmd)}`, { method: 'POST' })
+      const res = await api(`/api/run?cmd=${encodeURIComponent(c.cmd)}`, { method: 'POST' })
       if (!res.ok) throw new Error(await res.text())
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
       let all = ''
@@ -175,7 +177,7 @@
     const box = $('failures')
     let text, ok = false
     try {
-      const res = await fetch('/api/failures')
+      const res = await api('/api/failures')
       ok = res.ok
       text = await res.text()
     } catch (e) {
@@ -188,13 +190,13 @@
         box.append(el('div', m ? m[1] : 'empty', line))
       }
     } else {
-      box.append(el('div', 'problem', `Can't read failed runs. Is the runner up? (docker compose up -d)\n\n${text.trim()}`))
+      box.append(el('div', 'problem', `Can't read failed runs.\n\n${text.trim()}`))
     }
     $('checked').textContent = `checked ${clock()}`
   }
 
   async function loadCommands() {
-    const commands = await (await fetch('/api/commands')).json()
+    const commands = await (await api('/api/commands')).json()
     let group
     for (const c of commands) {
       if (c.group !== group) {

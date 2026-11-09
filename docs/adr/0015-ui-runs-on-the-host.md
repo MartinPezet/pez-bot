@@ -1,3 +1,5 @@
 # The operator UI runs on the host, not in the container
 
+Superseded by ADR-0017: the owner's server has no Node or npm.
+
 The owner wanted a web page to run commands and read failed runs, but agent-written code shares the runner container's network namespace, so anything listening there, even on loopback, could be reached by the agent user: it could start jobs, skip the budget gate with `--ignore-budget`, and read run details it is otherwise cut off from. An in-container server would need a token the agent can't read and a published port, and would grow the attack surface of the two-user model for a convenience. So `npm run ui` is a small host-side server bound to `127.0.0.1` that shells out to `docker compose exec -T runner pez-bot <command>` from a fixed list, and `ui/` is kept out of the image build. The cost is needing Node and this checkout on the machine with Docker access (or an SSH prefix through `PEZ_BOT_UI_EXEC`), and every log refresh spawning a CLI process; in exchange the container and its security model don't change at all.

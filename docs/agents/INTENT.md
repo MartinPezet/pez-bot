@@ -22,5 +22,5 @@ A solo developer on a Claude Pro/Max plan who shares that plan's usage with the 
 
 - **Never merges, never pushes to the default branch, never closes issues.** These stay human actions.
 - **One target repo per container, one job at a time.** No parallel agents, no multi-repo orchestration.
-- **No hosted service.** No webhooks; polling on a schedule is enough. The only web UI is a local page on the owner's machine that shells out to the CLI; nothing listens in the container (ADR-0015).
+- **No hosted service.** No webhooks; polling on a schedule is enough. The only web UI is an optional, password-protected page for the owner, served by the daemon and off by default (ADR-0017).
 - **No money spent.** Cost figures are estimates for a subscription plan, not billing.
