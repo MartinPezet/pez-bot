@@ -26,6 +26,13 @@ Format: `<gitmoji>: <Description>`, for example `✨: Add run-window grace perio
 
 Work on a branch, open a PR into `main`, merge with a merge commit (no squash, no rebase). Title the merge commit `🔀: Merge #N <PR title without its emoji>`. `main` stays green: run `npm run typecheck` and `npm test` before every commit.
 
+## Verify statuses, don't trust them
+
+A label, a PR state, a CI result or a line in `CONTEXT.md` is a claim, not a fact. Check the source before acting on it or reporting it.
+
+- **When working:** before saying something is done, passing, merged or stuck, look it up (`gh pr view`, `gh run list`, the test output). If you can't check, say "not verified" rather than repeating the claim.
+- **In the runner's code:** an unreadable status is unknown, never success. Don't turn an API error into "nothing to do" with only a log line; surface it (digest, comment, or `state:blocked`) so a stale label can't hide a real failure.
+
 ## Docs move with the code
 
 Update these in the same commit as the change that makes them stale:

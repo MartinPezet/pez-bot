@@ -22,6 +22,7 @@ implementation PR [state:pr-review] ── you review and merge → issue closes
 anything failing ──► state:blocked + comment + draft PR with partial work
 implementation PR fails CI ──► sync sends it back to build with the CI log, up to maxFixAttempts times, then state:blocked
 proposal PR fails CI, or the CI log is unreadable ──► state:blocked, naming the failed checks
+CI status itself unreadable (missing App permissions) ──► issue stays in review, ❌ error comment on it once per PR, listed in every morning summary until a read works
 usage limit / window end ──► work pushed to change/issue-N, issue requeued, resumed later
 weekdays 07:30 ──► morning summary in the digest discussion
 ```
