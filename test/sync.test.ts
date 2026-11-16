@@ -111,6 +111,25 @@ describe('sync: CI on review PRs', () => {
     expect(kv.get(h.db, 'cifix.attempts.1')).toBeUndefined()
   })
 
+  it('reports unreadable CI once instead of treating it as green', async () => {
+    const h = harness()
+    h.gh.addIssue({ number: 1, labels: ['state:pr-review'] })
+    h.gh.addPr({ number: 10, headRefName: 'change/issue-1' })
+    h.gh.failedChecks = async () => {
+      throw new Error('Resource not accessible by integration')
+    }
+    await sync(h.deps)
+    await sync(h.deps)
+    expect(h.gh.issues[0]?.labels).toEqual(['state:pr-review'])
+    expect(h.digest.events.map(e => e.emoji)).toEqual(['⚠️'])
+    expect(h.digest.events[0]?.text).toContain("Can't read CI on #1")
+    const comments = h.gh.comments.get(1) ?? []
+    expect(comments).toHaveLength(1)
+    expect(comments[0]?.body).toContain('❌ **Runner error**')
+    expect(comments[0]?.body).toContain('Resource not accessible by integration')
+    expect(kv.get(h.db, 'ci.unreadable.10')).toBe('Resource not accessible by integration')
+  })
+
   it('blocks once the fix attempts run out, and a later relabel starts afresh', async () => {
     const h = harness()
     kv.set(h.db, 'cifix.attempts.1', '2')

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BLOCK_HEADER, buildSummary, summary } from '../src/jobs/summary.js'
 import { FakeGitHub } from './fakes.js'
 import { harness } from './jobs-harness.js'
+import { kv } from '../src/state/db.js'
 
 const now = new Date('2026-10-05T06:30:00Z')
 
@@ -59,6 +60,16 @@ describe('summary job', () => {
     const md = h.digest.sections[0] ?? ''
     expect(md).toContain('C: Gates still failing after 2 fix attempts:')
     expect(md).not.toContain('blocked 2 times')
+  })
+
+  it('lists review PRs whose CI the runner could not read', async () => {
+    const h = harness({ now })
+    h.gh.addIssue({ number: 1, title: 'A', labels: ['state:pr-review'] })
+    h.gh.addPr({ number: 10, headRefName: 'change/issue-1', createdAt: '2026-10-04T00:00:00Z' })
+    kv.set(h.db, 'ci.unreadable.10', 'Resource not accessible by integration')
+    await summary(h.deps)
+    expect(h.digest.sections[0]).toContain("❌ Can't read CI on [#10](https://github.com/acme/app/pull/10)")
+    expect(h.digest.sections[0]).toContain('Resource not accessible by integration')
   })
 
   it('posts nothing when there is nothing to say', async () => {

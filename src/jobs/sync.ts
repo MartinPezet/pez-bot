@@ -3,7 +3,7 @@ import type { FailedCheck, Issue, PullRequest } from '../github/client.js'
 import { setState, stateOf } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import { kv } from '../state/db.js'
-import { block, CI_FIX_ATTEMPTS, CI_FIX_FAILURE } from './common.js'
+import { block, CI_FIX_ATTEMPTS, CI_FIX_FAILURE, CI_READ_PERMISSIONS, CI_UNREADABLE } from './common.js'
 import type { Deps, JobResult } from './types.js'
 
 /**
@@ -85,11 +85,24 @@ async function handleFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promis
   const n = issue.number
   const pr = prs.find(p => p.state === 'OPEN' && (p.headRefName === `change/issue-${n}` || p.headRefName.startsWith(`proposal/issue-${n}-`)))
   if (!pr) return false
-  // An App without the Checks/Commit statuses permission can't read CI; don't fail the whole sync over it.
-  const failed = await d.gh.failedChecks(pr.number).catch(err => {
-    d.log.warn({ err, pr: pr.number }, 'could not read CI status')
-    return []
+  // Unreadable CI is unknown, not green: say so once per PR, or a red PR sits in review forever.
+  // Don't fail the whole sync over it (an App without Checks/Commit statuses read can't see CI).
+  const unreadable = CI_UNREADABLE(pr.number)
+  const failed = await d.gh.failedChecks(pr.number).catch(async err => {
+    d.log.error({ err, pr: pr.number }, 'could not read CI status')
+    if (!kv.get(d.db, unreadable)) {
+      const msg = (err instanceof Error ? err.message : String(err)).slice(0, 300)
+      kv.set(d.db, unreadable, msg)
+      await d.gh.comment(
+        n,
+        `❌ **Runner error**: couldn't read CI on ${pr.url}, so a failure there won't be sent back to fix. ${CI_READ_PERMISSIONS}\n\n\`\`\`\n${msg}\n\`\`\``,
+      )
+      d.digest.add('⚠️', `Can't read CI on #${n} ${issue.title}, so a failure there won't be fixed. ${CI_READ_PERMISSIONS}`, pr.url)
+    }
+    return null
   })
+  if (!failed) return false
+  kv.del(d.db, unreadable)
   if (!failed.length) return false
 
   const names = failed.map(c => `\`${c.name}\``).join(', ')

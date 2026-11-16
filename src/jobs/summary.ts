@@ -1,6 +1,8 @@
 import { partitionByAuthor } from '../github/authors.js'
 import type { Issue, PullRequest } from '../github/client.js'
 import { STATES, stateOf } from '../github/labels.js'
+import { kv } from '../state/db.js'
+import { CI_READ_PERMISSIONS, CI_UNREADABLE } from './common.js'
 import type { Deps, JobResult } from './types.js'
 
 export const BLOCK_HEADER = '🚧 **Runner blocked**'
@@ -11,6 +13,8 @@ export interface SummaryInput {
   /** Latest block reason and how many times the runner has blocked it, per blocked issue. */
   blocked: Map<number, { reason: string; times: number }>
   now: Date
+  /** PR number → error, for review PRs whose CI the runner couldn't read. */
+  ciUnreadable?: Map<number, string>
 }
 
 const DAY = 24 * 60 * 60_000
@@ -25,6 +29,8 @@ export function buildSummary(s: SummaryInput): string | null {
   for (const i of by('state:pr-review')) {
     const pr = openPr(p => p.headRefName === `change/issue-${i.number}`)
     needs.push(`- 🔍 PR to review: ${pr ? link(pr) : '(PR not found)'} ${i.title} (${link(i)})`)
+    const err = pr && s.ciUnreadable?.get(pr.number)
+    if (err) needs.push(`- ❌ Can't read CI on ${link(pr)}, so failures there aren't being fixed: ${err.slice(0, 160)}. ${CI_READ_PERMISSIONS}`)
   }
   for (const i of by('state:proposal-review')) {
     const pr = openPr(p => p.headRefName.startsWith(`proposal/issue-${i.number}-`))
@@ -69,7 +75,12 @@ export async function summary(d: Deps): Promise<JobResult> {
     const reason = last?.body.slice(BLOCK_HEADER.length).trim().split('\n').find(l => l.trim() && !l.startsWith('```'))?.slice(0, 160) ?? ''
     blocked.set(i.number, { reason, times: ours.length })
   }
-  const md = buildSummary({ issues, prs, blocked, now: d.now() })
+  const ciUnreadable = new Map<number, string>()
+  for (const p of prs.filter(x => x.state === 'OPEN')) {
+    const err = kv.get(d.db, CI_UNREADABLE(p.number))
+    if (err) ciUnreadable.set(p.number, err)
+  }
+  const md = buildSummary({ issues, prs, blocked, now: d.now(), ciUnreadable })
   if (!md) return { outcome: 'noop', detail: 'nothing to report' }
   d.digest.addSection(md)
   return { outcome: 'ok' }
