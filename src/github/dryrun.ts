@@ -38,6 +38,9 @@ export class DryRunGitHub implements GitHub {
   issueComments(n: number): Promise<IssueComment[]> {
     return this.inner.issueComments(n)
   }
+  prReviewComments(pr: number): Promise<IssueComment[]> {
+    return this.inner.prReviewComments(pr)
+  }
   listPrs(): Promise<PullRequest[]> {
     return this.inner.listPrs()
   }

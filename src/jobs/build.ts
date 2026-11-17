@@ -5,7 +5,7 @@ import { isUrgent, setState } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import {
   agentEnv, askClaude, block, CI_FIX_FAILURE, FATAL_CLAUDE_ERRORS, gatesText, gateJudge, isPause, type JudgedGates, pause, pushAndOpenPr,
-  resetTestServices, runGates, stopSignal, sumCost, testServiceProblems,
+  resetTestServices, REVIEW_FEEDBACK, runGates, stopSignal, sumCost, testServiceProblems,
 } from './common.js'
 import { kv } from '../state/db.js'
 import type { Deps, JobResult } from './types.js'
@@ -32,7 +32,8 @@ ${tail(gate.log, 30)}
 /**
  * Approved change → apply → gates → fix loop → implementation PR. Resumes from an existing
  * `change/issue-N` branch (merging the default branch in first); paused runs are pushed there.
- * After failed CI (sync records it) it skips apply and starts the fix loop from the CI log.
+ * After failed CI or new review comments (sync records them) it skips apply and starts the fix
+ * loop from the CI log, or else the comments.
  */
 export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean }): Promise<JobResult> {
   const n = issue.number
@@ -80,10 +81,12 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
     GATES: gatesText(d),
   }
   const ciFailure = kv.get(d.db, CI_FIX_FAILURE(n))
+  // CI first: review feedback waits in kv and the next round picks it up.
+  const feedback = ciFailure ? undefined : kv.get(d.db, REVIEW_FEEDBACK(n))
   const commitsBefore = await d.wt.commitsAhead(dir)
   let cost = { estCostUsd: 0, turns: 0 }
   let text = ''
-  if (!change.archived && !ciFailure) {
+  if (!change.archived && !ciFailure && !feedback) {
     const res = await askClaude(d, { model: 'build', tools: 'build', prompt: await d.prompt('apply', vars), cwd: dir, urgent, ignoreBudget: o.ignoreBudget })
     cost = sumCost(cost, res)
     if (isPause(res)) return { ...(await pause(d, issue, res, 'state:approved', dir, branch)), ...cost }
@@ -99,7 +102,8 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   let sig = stopSignal(text)
   await resetTestServices(d)
   const judge = gateJudge(d)
-  let gate: JudgedGates = sig ? { ok: false, log: '' } : ciFailure ? { ok: false, log: ciFailure } : await judge(await runGates(d, dir))
+  const first = ciFailure ?? feedback
+  let gate: JudgedGates = sig ? { ok: false, log: '' } : first ? { ok: false, log: first } : await judge(await runGates(d, dir))
   for (let i = 0; !sig && !gate.ok && i < d.project.maxFixAttempts; i++) {
     d.log.info({ issue: n, attempt: i + 1 }, 'gates failed, fixing')
     const fix = await askClaude(d, {
@@ -107,6 +111,8 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
       // A CI log was never compared with the default branch, so it can't use the `fix` prompt's claims about that.
       prompt: ciFailure && i === 0
         ? await d.prompt('fix-ci', { ...vars, CI_OUTPUT: ciFailure })
+        : feedback && i === 0
+        ? await d.prompt('fix-review', { ...vars, FEEDBACK: feedback })
         : await d.prompt('fix', { ...vars, GATE_OUTPUT: gate.log, NEW_ERRORS: (gate.newErrors ?? []).join('\n') || '(none identified)' }),
     })
     cost = sumCost(cost, fix)
@@ -132,6 +138,13 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   if (ciFailure && (await d.wt.commitsAhead(dir)) === commitsBefore) {
     return { ...(await block(d, issue, `Agent made no commits to fix CI:\n\n${text.slice(0, 2000)}`, dir)), ...cost }
   }
+  // Feedback can be a question, or ask for nothing in the code: reply and hand the PR back for review.
+  if (feedback && (await d.wt.commitsAhead(dir)) === commitsBefore) {
+    kv.del(d.db, REVIEW_FEEDBACK(n))
+    await setState(d.gh, issue, 'state:pr-review')
+    await d.gh.comment(n, `💬 Read the review comments but changed nothing:\n\n${text.slice(0, 4000)}`)
+    return { outcome: 'ok', issue: n, detail: 'review feedback: no changes', worktree: dir, ...cost }
+  }
 
   const url = await pushAndOpenPr(
     d, dir, branch, `${issue.title} (#${n})`,
@@ -139,7 +152,9 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   )
   await setState(d.gh, issue, 'state:pr-review')
   kv.del(d.db, CI_FIX_FAILURE(n))
-  await d.gh.comment(n, ciFailure ? `🔧 Pushed a CI fix: ${url}` : `✅ Implementation PR ready: ${url}`)
-  d.digest.add(ciFailure ? '🔧' : '🚀', `${ciFailure ? 'CI fix pushed' : 'Implementation PR opened'} for #${n} ${issue.title}`, url)
+  if (feedback) kv.del(d.db, REVIEW_FEEDBACK(n))
+  const done = ciFailure ? 'CI fix pushed' : feedback ? 'Review feedback addressed' : 'Implementation PR opened'
+  await d.gh.comment(n, ciFailure ? `🔧 Pushed a CI fix: ${url}` : feedback ? `🔧 Addressed the review comments: ${url}` : `✅ Implementation PR ready: ${url}`)
+  d.digest.add(ciFailure || feedback ? '🔧' : '🚀', `${done} for #${n} ${issue.title}`, url)
   return { outcome: 'ok', issue: n, detail: url, worktree: dir, ...cost }
 }

@@ -48,6 +48,8 @@ Agents end with `NEEDS_DECISION:`, `NEEDS_SPLIT:` or `BLOCKED:`. The parser take
 
 `sync` reads the status check rollup of each open review PR. A failed implementation PR gets its log tail stored in `kv` and returns to `approved`; the next build skips apply, seeds the fix loop with that log (prompt `fix-ci`, since it was never compared with the default branch), and pushes to the same PR. WIP limits don't hold it, because it adds no PR. Attempts are capped by `maxFixAttempts`, and `block()` clears them. A failed proposal PR or an unreadable log blocks straight away.
 
+Otherwise `sync` looks for new comments by `allowedAuthors` on the open implementation PR: conversation comments, review bodies and inline comments, newer than the `review.seen.<pr>` watermark (none on first sight, so every earlier comment counts). They go into `kv` and the issue returns to `approved`; the next build skips apply, seeds the fix loop with them (prompt `fix-review`) and pushes to the same PR. Failed CI goes first. If the agent commits nothing (a question, or nothing to change), its answer is posted and the issue goes back to `pr-review`. Feedback isn't capped: each round needs a new human comment. `block()` keeps it, so a relabel to `approved` retries it.
+
 ## Gotchas
 
 - **The UI port is reachable from agent code unless blocked:** they share a network namespace, loopback included, so `init-firewall.sh` rejects the agent uid ahead of the loopback accept (ADR-0017). `UI_PORT` is set in both that script and `src/ui/server.ts`.
