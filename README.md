@@ -21,6 +21,7 @@ implementation PR [state:pr-review] ── you review and merge → issue closes
 
 anything failing ──► state:blocked + comment + draft PR with partial work
 implementation PR fails CI ──► sync sends it back to build with the CI log, up to maxFixAttempts times, then state:blocked
+you comment on an open implementation PR ──► sync sends it back to build with your new comments; the fix is pushed to the same PR
 proposal PR fails CI, or the CI log is unreadable ──► state:blocked, naming the failed checks
 CI status itself unreadable (missing App permissions) ──► issue stays in review, ❌ error comment on it once per PR, listed in every morning summary until a read works
 usage limit / window end ──► work pushed to change/issue-N, issue requeued, resumed later
@@ -152,7 +153,7 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | Command | What it does |
 |---|---|
 | `daemon` | The scheduler (default) |
-| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, send review PRs that failed CI back to build or block them. No Claude. |
+| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, send review PRs that failed CI, or have new comments from `allowedAuthors`, back to build (or block them). No Claude. |
 | `work [--ignore-budget]` | Sync, then build or propose one item, if the window and budget allow. `--ignore-budget` skips both. |
 | `triage [--ignore-budget]` | Triage inbox items and answered questions. |
 | `summary` | Post the morning summary to the digest (if there's anything to say). |
@@ -260,7 +261,7 @@ Read from the target repo's default branch before every job and validated strict
 | `claude.maxTurns`, `claude.timeoutMin` | `150`, `90` | Per Claude call. |
 | `claude.extraAllowedTools` | `[]` | Extra tool rules for propose/build, for example `["Bash(node ace *)"]`. |
 
-**Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `apply`, `fix`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
+**Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `apply`, `fix`, `fix-ci`, `fix-review`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
 
 **Project context:** agents read `openspec/config.yaml` (`context:`), and `openspec/project.md` if present.
 
