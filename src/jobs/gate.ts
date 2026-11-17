@@ -17,6 +17,8 @@ export interface GateDeps {
   now: () => Date
   /** Digest events raised by the gate (transitions, unknown usage). */
   notify: (emoji: string, text: string) => void
+  /** A one-off CLI run: windows don't apply (they only pace the daemon), the budget still does. */
+  manual?: boolean
 }
 
 export const budgetConfig = (env: Env): BudgetConfig => ({
@@ -46,7 +48,7 @@ export class BudgetGate implements Gate {
   }
 
   private ignoresWindows(urgent: boolean) {
-    return urgent && this.g.env.URGENT_IGNORES_WINDOWS
+    return this.g.manual === true || (urgent && this.g.env.URGENT_IGNORES_WINDOWS)
   }
 
   async check(kind: ClaudeJobKind, urgent: boolean): Promise<GateDecision> {
