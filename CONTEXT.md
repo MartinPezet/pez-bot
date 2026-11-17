@@ -10,6 +10,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - PR #19 merged (2026-11-08): `sync` checks CI on open review PRs. Failed implementation PRs go back to build with the CI log, capped by `maxFixAttempts`; failed proposals or unreadable logs block. Never seen working on real GitHub.
 - earth-scope #21 / PR #72 has failed `E2E Tests` since 2026-11-13. Unreadable CI is now reported (#23, merged), but on 2026-11-17 the runner still got `FORBIDDEN` after the App's permissions were changed; likely the installation hasn't accepted them.
 - PR #24 (merged): `sync` sends review PRs with new comments from `allowedAuthors` back to build (prompt `fix-review`, watermark kv `review.seen.<pr>`). Tested with fakes only. Doesn't need CI permissions, so it can fix earth-scope #72 from the owner's comments.
+- PR #26 (merged, 2026-11-17): run windows now pace only the daemon. One-off CLI runs (and so UI buttons) skip the window check and get no window deadline, but still pass the budget gate unless `--ignore-budget`. Flag is `createApp(..., { manual: true })` in `cli.ts` → `GateDeps.manual`.
 
 ## Next steps
 

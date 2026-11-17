@@ -44,7 +44,8 @@ export interface App {
   botLogin(): Promise<string>
 }
 
-export function createApp(ctx: Ctx, db: DB, env: Env): App {
+/** `manual`: a one-off CLI run, which ignores run windows. */
+export function createApp(ctx: Ctx, db: DB, env: Env, o: { manual?: boolean } = {}): App {
   const { log, paths } = ctx
   const tokens = tokenProviderFromEnv(env)
   const wrap = (repo: string) => {
@@ -82,7 +83,7 @@ export function createApp(ctx: Ctx, db: DB, env: Env): App {
     abort: new AbortController(),
     state,
     gauge,
-    makeGate: (project, notify) => new BudgetGate({ env, project, db, gauge, log, now: () => new Date(), notify }),
+    makeGate: (project, notify) => new BudgetGate({ env, project, db, gauge, log, now: () => new Date(), notify, manual: o.manual }),
     onReadings: r => gauge.record(r),
     firewallOk: () => readFirewall(paths.firewall)?.ok === true,
     async botLogin() {
