@@ -199,7 +199,7 @@ async function withApp(name: string, fn: (app: App) => Promise<JobResult>): Prom
     return 78
   }
   const db = openDb(ctx.paths.db)
-  const app = createApp(ctx, db, ctx.env.value)
+  const app = createApp(ctx, db, ctx.env.value, { manual: true })
   const onSignal = () => app.abort.abort()
   process.once('SIGTERM', onSignal)
   process.once('SIGINT', onSignal)

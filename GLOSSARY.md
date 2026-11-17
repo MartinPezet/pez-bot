@@ -81,7 +81,7 @@ The SQLite lock that guarantees one job at a time across containers.
 ## Budget
 
 **Window**:
-A recurring time range in `RUN_WINDOWS` when Claude jobs may start.
+A recurring time range in `RUN_WINDOWS` when the daemon may start Claude jobs. Manual runs ignore it.
 
 **Usage gauge**:
 The runner's best reading of 5-hour and weekly plan utilisation; may be unknown.

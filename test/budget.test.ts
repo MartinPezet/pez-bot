@@ -76,7 +76,7 @@ describe('budget rules', () => {
 })
 
 describe('budget gate', () => {
-  function setup(o: { env?: Record<string, string>; probe?: () => Reading[]; at?: Date } = {}) {
+  function setup(o: { env?: Record<string, string>; probe?: () => Reading[]; at?: Date; manual?: boolean } = {}) {
     const db = openDb(':memory:')
     let probes = 0
     const probe: Probe = {
@@ -99,6 +99,7 @@ describe('budget gate', () => {
       log: silent,
       now: () => clock,
       notify: (e, t) => events.push(`${e} ${t}`),
+      manual: o.manual,
     })
     return { db, gauge, gate, events, probes: () => probes, setClock: (d: Date) => (clock = d) }
   }
@@ -114,6 +115,16 @@ describe('budget gate', () => {
     expect((await s.gate.check('build', true)).ok).toBe(true)
     const off = setup({ at: new Date('2026-10-10T12:00:00Z'), env: { URGENT_IGNORES_WINDOWS: 'false' } })
     expect((await off.gate.check('build', true)).ok).toBe(false)
+  })
+
+  it('manual runs ignore windows but not the budget, and have no deadline', async () => {
+    const out = new Date('2026-10-10T12:00:00Z')
+    const s = setup({ at: out, manual: true, probe: () => [r('five_hour', 0.1, 0), r('seven_day', 0.1, 0)] })
+    expect((await s.gate.check('build', false)).ok).toBe(true)
+    expect(s.gate.deadline(false)).toBeNull()
+    const busy = setup({ at: out, manual: true })
+    busy.gauge.record([r('five_hour', 0.1, 1, { at: out }), r('seven_day', 0.9, 1, { at: out })])
+    expect((await busy.gate.check('build', false)).ok).toBe(false)
   })
 
   it('probes at most once per USAGE_MAX_AGE_MIN when usage is unknown', async () => {
