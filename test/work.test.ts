@@ -303,6 +303,49 @@ describe('build', () => {
     })
   })
 
+  describe('after review comments', () => {
+    function feedback(h: ReturnType<typeof harness>) {
+      kv.set(h.db, 'review.feedback.9', '**@martin**: Please fix the E2E tests')
+      h.gh.addIssue({ number: 9, title: 'Water strikes', labels: ['state:approved'] })
+      h.gh.addPr({ number: 70, headRefName: 'change/issue-9' })
+      h.wt.remote.add('change/issue-9')
+      const original = h.wt.resume.bind(h.wt)
+      h.wt.resume = async (b: string) => {
+        const r = await original(b)
+        writeChange(r.dir, 'issue-9-water-strikes')
+        return r
+      }
+    }
+
+    it('skips apply, addresses the comments and pushes to the open PR', async () => {
+      const h = harness()
+      feedback(h)
+      h.claude.then(req => {
+        expect(req.prompt).toContain('[fix-review]')
+        expect(req.prompt).toContain('Please fix the E2E tests')
+        h.wt.agentCommit(req.cwd, 'fix(e2e): wait for the map (#9)')
+        return { text: 'fixed' }
+      })
+      expect(await work(h.deps, { ignoreBudget: false })).toMatchObject({ outcome: 'ok', issue: 9 })
+      expect(h.claude.calls).toHaveLength(1)
+      expect(h.wt.pushed).toEqual(['change/issue-9'])
+      expect(h.gh.issues[0]?.labels).toEqual(['state:pr-review'])
+      expect(kv.get(h.db, 'review.feedback.9')).toBeUndefined()
+      expect(h.gh.comments.get(9)?.at(-1)?.body).toContain('Addressed the review comments')
+    })
+
+    it('replies and hands the PR back when the agent changes nothing', async () => {
+      const h = harness()
+      feedback(h)
+      h.claude.then(() => ({ text: 'The tests already pass locally; the failure is a flaky CI runner.' }))
+      expect(await work(h.deps, { ignoreBudget: false })).toMatchObject({ outcome: 'ok' })
+      expect(h.wt.pushed).toEqual([])
+      expect(h.gh.issues[0]?.labels).toEqual(['state:pr-review'])
+      expect(h.gh.comments.get(9)?.at(-1)?.body).toContain('flaky CI runner')
+      expect(kv.get(h.db, 'review.feedback.9')).toBeUndefined()
+    })
+  })
+
   it('skips apply for an already-archived change and goes straight to gates', async () => {
     const h = harness()
     h.gh.addIssue({ number: 9, title: 'Water strikes', labels: ['state:approved'] })

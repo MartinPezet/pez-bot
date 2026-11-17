@@ -70,6 +70,11 @@ export class FakeGitHub implements GitHub {
   async issueComments(n: number) {
     return this.comments.get(n) ?? []
   }
+  /** Review bodies and inline comments by PR number. */
+  reviewComments = new Map<number, IssueComment[]>()
+  async prReviewComments(pr: number) {
+    return this.reviewComments.get(pr) ?? []
+  }
   async listPrs() {
     return [...this.prs].sort((a, b) => b.number - a.number)
   }

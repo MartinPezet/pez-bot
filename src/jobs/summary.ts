@@ -66,7 +66,7 @@ export function buildSummary(s: SummaryInput): string | null {
 
 /** No LLM call: reads GitHub and posts one section to the digest. */
 export async function summary(d: Deps): Promise<JobResult> {
-  const issues = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors).allowed
+  const issues = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors, d.botLogin).allowed
   const prs = await d.gh.listPrs()
   const blocked = new Map<number, { reason: string; times: number }>()
   for (const i of issues.filter(x => stateOf(x) === 'state:blocked')) {

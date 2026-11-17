@@ -201,6 +201,9 @@ export const CI_FIX_ATTEMPTS = (n: number) => `cifix.attempts.${n}`
 export const CI_FIX_FAILURE = (n: number) => `cifix.failure.${n}`
 /** Per PR: the error from the last failed CI status read, cleared once a read works. */
 export const CI_UNREADABLE = (pr: number) => `ci.unreadable.${pr}`
+/** Per issue: review comments the next build should address. Per PR: newest comment already handed over. */
+export const REVIEW_FEEDBACK = (n: number) => `review.feedback.${n}`
+export const REVIEW_SEEN = (pr: number) => `review.seen.${pr}`
 export const CI_READ_PERMISSIONS = 'Give the GitHub App Checks, Commit statuses and Actions read access.'
 
 /** state:blocked with a comment; partial work goes up as a draft PR. A relabel afterwards starts CI fixes afresh. */

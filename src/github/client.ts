@@ -63,6 +63,8 @@ export interface GitHub {
   /** Titles of every issue, open or closed, for idempotent creation. */
   allIssueTitles(): Promise<string[]>
   issueComments(n: number): Promise<IssueComment[]>
+  /** Review bodies and inline review comments on a PR (its conversation comments come from issueComments). */
+  prReviewComments(pr: number): Promise<IssueComment[]>
   /** PRs in every state, newest first. */
   listPrs(): Promise<PullRequest[]>
   /** The failed checks on a PR's head commit; empty while CI is pending, green, or absent. */
@@ -232,6 +234,20 @@ export class HttpGitHub implements GitHub {
       `${this.base}/issues/${n}/comments`,
     )
     return items.map(c => ({ id: c.id, author: c.user?.login ?? 'ghost', body: c.body ?? '', createdAt: c.created_at }))
+  }
+
+  async prReviewComments(pr: number): Promise<IssueComment[]> {
+    type User = { login: string } | null
+    const reviews = await this.paginate<{ id: number; user: User; body: string | null; submitted_at: string | null }>(`${this.base}/pulls/${pr}/reviews`)
+    const inline = await this.paginate<{ id: number; user: User; body: string; path: string; line: number | null; created_at: string }>(
+      `${this.base}/pulls/${pr}/comments`,
+    )
+    return [
+      ...reviews
+        .filter(r => r.body?.trim() && r.submitted_at)
+        .map(r => ({ id: r.id, author: r.user?.login ?? 'ghost', body: r.body ?? '', createdAt: r.submitted_at ?? '' })),
+      ...inline.map(c => ({ id: c.id, author: c.user?.login ?? 'ghost', body: `\`${c.path}${c.line ? `:${c.line}` : ''}\`: ${c.body}`, createdAt: c.created_at })),
+    ]
   }
 
   async listPrs(): Promise<PullRequest[]> {

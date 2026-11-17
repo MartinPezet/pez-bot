@@ -21,6 +21,7 @@ implementation PR [state:pr-review] ── you review and merge → issue closes
 
 anything failing ──► state:blocked + comment + draft PR with partial work
 implementation PR fails CI ──► sync sends it back to build with the CI log, up to maxFixAttempts times, then state:blocked
+you comment on an open implementation PR ──► sync sends it back to build with your new comments; the fix is pushed to the same PR
 proposal PR fails CI, or the CI log is unreadable ──► state:blocked, naming the failed checks
 CI status itself unreadable (missing App permissions) ──► issue stays in review, ❌ error comment on it once per PR, listed in every morning summary until a read works
 usage limit / window end ──► work pushed to change/issue-N, issue requeued, resumed later
@@ -152,7 +153,7 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | Command | What it does |
 |---|---|
 | `daemon` | The scheduler (default) |
-| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, send review PRs that failed CI back to build or block them. No Claude. |
+| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, send review PRs that failed CI, back to build, block them or have new comments from `allowedAuthors`, back to build (or block them). No Claude. |
 | `work [--ignore-budget]` | Sync, then build or propose one item, if the budget allows. Run windows don't apply to manual runs. `--ignore-budget` skips the budget gate too. |
 | `triage [--ignore-budget]` | Triage inbox items and answered questions. |
 | `summary` | Post the morning summary to the digest (if there's anything to say). |
@@ -260,7 +261,7 @@ Read from the target repo's default branch before every job and validated strict
 | `claude.maxTurns`, `claude.timeoutMin` | `150`, `90` | Per Claude call. |
 | `claude.extraAllowedTools` | `[]` | Extra tool rules for propose/build, for example `["Bash(node ace *)"]`. |
 
-**Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `apply`, `fix`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
+**Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `apply`, `fix`, `fix-ci`, `fix-review`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
 
 **Project context:** agents read `openspec/config.yaml` (`context:`), and `openspec/project.md` if present.
 
@@ -285,7 +286,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 
 - **Two users.** `runner` holds the GitHub credentials, state and logs and does every GitHub write and `git push`. `agent` runs Claude, installs and gates (agent-written code) through `sudo -u agent env -i …`, so it sees only Claude's own auth and the test service URLs. It can't read the runner's environment, `/data/state`, logs or the App key.
 - **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
-- **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own comments) reach prompts or move state.
+- **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own issues and comments, such as triage split children) reach prompts or move state.
 - **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
 - **Redaction** of tokens and keys in logs, comments, PR bodies and the digest.
