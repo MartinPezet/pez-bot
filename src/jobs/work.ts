@@ -45,7 +45,7 @@ export function pickNext(
 /** Sync, then build or propose exactly one item if the window and budget allow. */
 export async function work(d: Deps, o: { ignoreBudget: boolean }): Promise<JobResult> {
   await sync(d)
-  const trusted = async (label: string) => partitionByAuthor(await d.gh.listIssues(label), d.project.allowedAuthors).allowed
+  const trusted = async (label: string) => partitionByAuthor(await d.gh.listIssues(label), d.project.allowedAuthors, d.botLogin).allowed
   const approved = await trusted('state:approved')
   const ready = (await trusted('state:ready')).filter(i => !i.labels.includes('type:spike'))
   const next = pickNext(approved, ready, await d.gh.listPrs(), d.project.wip)

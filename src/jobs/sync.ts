@@ -12,7 +12,7 @@ import type { Deps, JobResult } from './types.js'
  * that failed CI (back to the build with the log, or blocked), and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
  */
 export async function sync(d: Deps): Promise<JobResult> {
-  const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors)
+  const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors, d.botLogin)
   noteIgnored(d, ignored)
 
   let changed = 0
