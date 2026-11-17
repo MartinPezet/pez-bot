@@ -1,9 +1,9 @@
-import { partitionByAuthor } from '../github/authors.js'
+import { isAllowedAuthor, partitionByAuthor, renderComments } from '../github/authors.js'
 import type { FailedCheck, Issue, PullRequest } from '../github/client.js'
 import { setState, stateOf } from '../github/labels.js'
 import { tail } from '../exec/run.js'
 import { kv } from '../state/db.js'
-import { block, CI_FIX_ATTEMPTS, CI_FIX_FAILURE, CI_READ_PERMISSIONS, CI_UNREADABLE } from './common.js'
+import { block, CI_FIX_ATTEMPTS, CI_FIX_FAILURE, CI_READ_PERMISSIONS, CI_UNREADABLE, REVIEW_FEEDBACK, REVIEW_SEEN } from './common.js'
 import type { Deps, JobResult } from './types.js'
 
 /**
@@ -29,6 +29,7 @@ export async function sync(d: Deps): Promise<JobResult> {
   }
   for (const issue of allowed.filter(i => stateOf(i) === 'state:proposal-review' || stateOf(i) === 'state:pr-review')) {
     if (await handleFailedCi(d, issue, prs)) changed++
+    else if (await handleReviewFeedback(d, issue, prs)) changed++
   }
   return { outcome: changed ? 'ok' : 'noop', detail: `${changed} issue(s) moved` }
 }
@@ -124,6 +125,33 @@ async function handleFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promis
   await setState(d.gh, issue, 'state:approved')
   await d.gh.comment(n, `🔁 ${failure} Sending it back to the runner to fix (attempt ${attempts + 1} of ${d.project.maxFixAttempts}).`)
   d.digest.add('🔁', `CI failed on #${n} ${issue.title}; sent back to fix (${names.replace(/`/g, '')})`, pr.url)
+  return true
+}
+
+/**
+ * New comments from allowed authors on an open implementation PR (conversation, review bodies,
+ * inline) send the issue back to the build, which addresses them on the same branch.
+ * The first sight of a PR counts every earlier comment, since none were ever handed over.
+ */
+async function handleReviewFeedback(d: Deps, issue: Issue, prs: PullRequest[]): Promise<boolean> {
+  const n = issue.number
+  if (stateOf(issue) !== 'state:pr-review') return false
+  const pr = prs.find(p => p.state === 'OPEN' && p.headRefName === `change/issue-${n}`)
+  if (!pr) return false
+  const seen = kv.get(d.db, REVIEW_SEEN(pr.number)) ?? ''
+  // Allowed authors only: these comments go into a prompt. The bot's own never count as feedback.
+  const fresh = [...(await d.gh.issueComments(pr.number)), ...(await d.gh.prReviewComments(pr.number))]
+    .filter(c => isAllowedAuthor(c.author, d.project.allowedAuthors) && c.createdAt > seen)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const newest = fresh.at(-1)
+  if (!newest) return false
+
+  const earlier = kv.get(d.db, REVIEW_FEEDBACK(n))
+  kv.set(d.db, REVIEW_FEEDBACK(n), [earlier, renderComments(fresh)].filter(Boolean).join('\n\n---\n\n'))
+  kv.set(d.db, REVIEW_SEEN(pr.number), newest.createdAt)
+  await setState(d.gh, issue, 'state:approved')
+  await d.gh.comment(n, `💬 ${fresh.length} new review comment(s) on ${pr.url}. Sending it back to the runner to address them.`)
+  d.digest.add('💬', `Review feedback on #${n} ${issue.title}; sent back to address it`, pr.url)
   return true
 }
 
