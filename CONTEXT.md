@@ -17,6 +17,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - After deploying `feat/pr-review-feedback`, the next `work` should post 💬 on earth-scope #21 and push a fix to PR #72. Every earlier owner comment on open review PRs counts once on first sight.
 - Test the runner-only firewall rule (ADR-0016) in a real container before relying on it: only syntax-checked so far, because Docker is broken on the dev machine. Expect `firewall: verified` with no `WARNING`.
 - Try `npm run ui` against the real container.
+- Once `fix/trust-bot-issues` is deployed, earth-scope #74–77 (bot-authored split children of #71, ignored until now) get triaged at the next run window; check they land in `state:ready` or `state:needs-decision`.
 - Review `docs/agents/INTENT.md` and the ADRs for anything misremembered from `PLAN.md`.
 
 ## Known issues
