@@ -14,6 +14,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - Test the runner-only firewall rule (ADR-0016) in a real container before relying on it: only syntax-checked so far, because Docker is broken on the dev machine. Expect `firewall: verified` with no `WARNING`, and a failed PR moving to `state:approved` rather than `state:blocked`.
 - Add **Checks: read**, **Commit statuses: read** and **Actions: read** to the GitHub App and re-approve the installation; until then CI reads fail (logged as `could not read CI status`) and nothing gets blocked.
 - Try `npm run ui` against the real container.
+- Once `fix/trust-bot-issues` is deployed, earth-scope #74–77 (bot-authored split children of #71, ignored until now) get triaged at the next run window; check they land in `state:ready` or `state:needs-decision`.
 - Review `docs/agents/INTENT.md` and the ADRs for anything misremembered from `PLAN.md`.
 
 ## Known issues
