@@ -55,6 +55,7 @@ Otherwise `sync` looks for new comments by `allowedAuthors` on the open implemen
 - **The UI port is reachable from agent code unless blocked:** they share a network namespace, loopback included, so `init-firewall.sh` rejects the agent uid ahead of the loopback accept (ADR-0017). `UI_PORT` is set in both that script and `src/ui/server.ts`.
 - **UI commands are the daemon's children:** on shutdown they get SIGTERM so jobs can checkpoint, and share `stop_grace_period` with the daemon. Commands run through `docker compose exec` don't get this.
 - **CI logs need a firewall exception:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, allowed for the runner uid only (ADR-0016). Annotations are reachable from anywhere but often say only `Process completed with exit code 1`.
+- **The end of a job log is cleanup, not the failure:** after a failed step, GitHub's "Stop containers" step prints each service container's whole log (hundreds of Postgres health-check lines). `failingStep()` keeps only the step from its `##[group]Run` line to the first `##[error]` before tailing it.
 - **Claude Code allowlist syntax** is `Bash(git diff *)` (space before `*`), not the older `Bash(git diff:*)`.
 - **`DISABLE_AUTOUPDATER=1`, never `DISABLE_UPDATES`**: the latter also blocks `claude update`/`claude install`, which the `update` job needs.
 - **An empty `--allowedTools` list makes the CLI reject the call.** Omit the flag instead.

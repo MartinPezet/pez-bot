@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sync } from '../src/jobs/sync.js'
+import { failingStep, sync } from '../src/jobs/sync.js'
 import { kv } from '../src/state/db.js'
 import { harness } from './jobs-harness.js'
 
@@ -199,5 +199,25 @@ describe('sync: review comments on implementation PRs', () => {
     await sync(h.deps)
     expect(kv.get(h.db, 'cifix.failure.1')).toContain('boom')
     expect(kv.get(h.db, 'review.feedback.1')).toBeUndefined()
+  })
+})
+
+describe('failingStep', () => {
+  const t = (l: string) => `2026-11-13T09:33:54.2344446Z ${l}`
+  it('keeps the failing step and drops the service-container logs printed after it', () => {
+    const log = [
+      t('##[group]Run node ace migration:run'), t('migrated'),
+      t('##[group]Run npm run test:e2e'), t('  1 failed'), t('  [chromium] › e2e/boreholes.spec.ts:68:9'),
+      t('##[error]Process completed with exit code 1.'),
+      t('Post job cleanup.'), t('Print service container logs: postgres16'),
+      ...Array.from({ length: 300 }, () => t('FATAL:  role "root" does not exist')),
+    ].join('\n')
+    expect(failingStep(log)).toBe(
+      ['##[group]Run npm run test:e2e', '  1 failed', '  [chromium] › e2e/boreholes.spec.ts:68:9', '##[error]Process completed with exit code 1.'].join('\n'),
+    )
+  })
+
+  it('returns the whole log, minus timestamps, when no step errored', () => {
+    expect(failingStep([t('a'), t('b')].join('\n'))).toBe('a\nb')
   })
 })
