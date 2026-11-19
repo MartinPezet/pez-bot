@@ -1,6 +1,6 @@
 # pez-bot
 
-A self-hosted Docker service that works through a GitHub-hosted backlog unattended, using Claude Code in headless mode. It turns issues into OpenSpec proposals, waits for you to approve them (by merging the proposal PR), implements them, runs your gates, and opens implementation PRs for review. It never merges, never pushes to your default branch and never closes issues.
+A self-hosted Docker service that works through a GitHub-hosted backlog unattended, using Claude Code in headless mode. It turns issues into OpenSpec proposals, has a second agent review each one against its issue, implements them, runs your gates, and opens implementation PRs for review. It never merges, never pushes to your default branch and never closes issues.
 
 It is project-agnostic: the target repo is an input, and everything project-specific lives in that repo (`.backlog-runner.json`, `openspec/`, optional prompt overrides).
 
@@ -9,26 +9,27 @@ issue [state:inbox]
    │ triage (Claude, read-only codebase access) at the start of each run window
    ▼
 state:ready ◄── state:needs-decision ◄── you answer in a comment
-   │ work: propose (Claude writes openspec/changes/issue-N-*)
-   ▼
-proposal PR [state:proposal-review] ── you MERGE = approve, close = needs-decision
-   │ sync promotes merged proposals
+   │ work: propose (Claude writes openspec/changes/issue-N-*, validated)
+   │ then a reviewer agent (fresh context, read-only) checks it against the issue:
+   │   gaps → the writer revises, up to maxFixAttempts times, then state:blocked
+   │   owner decision needed → state:needs-decision
+   │   pass → spec commit pushed to change/issue-N (no PR)
    ▼
 state:approved
-   │ work: build (apply → gates → fix loop)
+   │ work: build (apply → gates → fix loop) on change/issue-N
    ▼
-implementation PR [state:pr-review] ── you review and merge → issue closes
+implementation PR [state:pr-review] ── spec + code in one PR; you review and merge → issue closes
 
 anything failing ──► state:blocked + comment + draft PR with partial work
 implementation PR fails CI ──► sync sends it back to build with the CI log, up to maxFixAttempts times, then state:blocked
 you comment on an open implementation PR ──► sync sends it back to build with your new comments; the fix is pushed to the same PR
-proposal PR fails CI, or the CI log is unreadable ──► state:blocked, naming the failed checks
+CI log unreadable ──► state:blocked, naming the failed checks
 CI status itself unreadable (missing App permissions) ──► issue stays in review, ❌ error comment on it once per PR, listed in every morning summary until a read works
 usage limit / window end ──► work pushed to change/issue-N, issue requeued, resumed later
 weekdays 07:30 ──► morning summary in the digest discussion
 ```
 
-Labels are the state machine. PR merges are the only approvals.
+Labels are the state machine. Merging the implementation PR is the only human approval.
 
 ## Contents
 
@@ -141,10 +142,9 @@ When you're happy, set `DRY_RUN=0` in `.env` and `docker compose up -d`.
 
 1. Read the 07:30 summary in the digest discussion.
 2. Answer `needs-decision` questions as issue comments; triage picks them up at the next window.
-3. Review proposal PRs: cheap, high-leverage review. Merge to approve, or close with a comment.
-4. Review implementation PRs and merge.
-5. For `blocked`: read the comment, fix or answer, and relabel `state:ready` (re-propose) or `state:approved` (re-build).
-6. Add `urgent` to an issue to jump the queue (only you set it; triage never touches it).
+3. Review implementation PRs and merge. Each one carries its OpenSpec proposal, already checked against the issue by a reviewer agent: read the spec first. Comment on the PR to send it back.
+4. For `blocked`: read the comment, fix or answer, and relabel `state:ready` (re-propose) or `state:approved` (re-build).
+5. Add `urgent` to an issue to jump the queue (only you set it; triage never touches it).
 
 ## Commands
 
@@ -153,7 +153,7 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 | Command | What it does |
 |---|---|
 | `daemon` | The scheduler (default) |
-| `sync` | Fetch, recover interrupted issues, promote merged/closed proposals, send review PRs that failed CI, back to build, block them or have new comments from `allowedAuthors`, back to build (or block them). No Claude. |
+| `sync` | Fetch, recover interrupted issues, send implementation PRs that failed CI, or have new comments from `allowedAuthors`, back to build (or block them). No Claude. |
 | `work [--ignore-budget]` | Sync, then build or propose one item, if the budget allows. Run windows don't apply to manual runs. `--ignore-budget` skips the budget gate too. |
 | `triage [--ignore-budget]` | Triage inbox items and answered questions. |
 | `summary` | Post the morning summary to the digest (if there's anything to say). |
@@ -248,8 +248,8 @@ Read from the target repo's default branch before every job and validated strict
 | `install` | required | Install command, for example `["pnpm","install","--frozen-lockfile"]`. |
 | `gates` | required | Commands that must pass, in order, for example `[["pnpm","typecheck"],["pnpm","lint"],["pnpm","test"]]`. |
 | `areas` | required | Allowed `area:` labels (lower-kebab-case). |
-| `wip.proposalsInReview`, `wip.prsInReview` | `3`, `3` | Open proposal/implementation PRs before the runner stops starting new ones. `urgent` doesn't bypass these. |
-| `maxFixAttempts` | `2` | Fix rounds after failing gates, and separately how many times a PR that failed CI goes back to build. `0` blocks on the first CI failure. |
+| `wip.prsInReview` | `3` | Open implementation PRs, plus approved items that will open one, before the runner stops starting new builds and proposals. `urgent` doesn't bypass it. `wip.proposalsInReview` is retired: still accepted, ignored. |
+| `maxFixAttempts` | `2` | Fix rounds after failing gates, revisions after a proposal review finds gaps, and separately how many times a PR that failed CI goes back to build. `0` blocks on the first CI failure. |
 | `testServices.postgres` | | `{ "version": "16", "env": "DATABASE_URL", "database": "app_test", "schema": "public" }`: the URL variable gates receive, and what's reset (schema dropped and recreated) before every build's gates. Optional `vars` also hands out the parts separately, for apps that don't read a URL: `{ "host": "DB_HOST", "port": "DB_PORT", "user": "DB_USER", "password": "DB_PASSWORD", "database": "DB_DATABASE" }` (any subset). |
 | `testServices.redis` | | `{ "version": "7", "env": "REDIS_URL" }`: flushed before every build's gates. Optional `vars`: `{ "host": …, "port": …, "password": … }`. |
 | `testServices.*.version` | | Production's major version. Before each build the runner checks the sidecar's actual version; on a mismatch builds are held (issues untouched), the digest says once what to set (`POSTGRES_TEST_IMAGE` / `REDIS_TEST_IMAGE`), and `setup` reports it. |
@@ -257,11 +257,11 @@ Read from the target repo's default branch before every job and validated strict
 | `timezone` | `Europe/London` | For windows, cron and the digest. |
 | `schedule` | | Cron overrides: `sync`, `summary`, `update`, `cleanup`. |
 | `allowedAuthors` | required | GitHub logins whose issues and comments the runner acts on. Everything else is ignored (and noted once in the digest). |
-| `models` | `sonnet` each | Model per job: `propose`, `build`, `fix`, `triage`, `migrate`. Opus burns Pro limits fastest. |
+| `models` | `sonnet` each | Model per job: `propose`, `review` (the proposal reviewer), `build`, `fix`, `triage`, `migrate`. Opus burns Pro limits fastest. |
 | `claude.maxTurns`, `claude.timeoutMin` | `150`, `90` | Per Claude call. |
 | `claude.extraAllowedTools` | `[]` | Extra tool rules for propose/build, for example `["Bash(node ace *)"]`. |
 
-**Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `apply`, `fix`, `fix-ci`, `fix-review`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
+**Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `review-proposal`, `revise-proposal`, `apply`, `fix`, `fix-ci`, `fix-review`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
 
 **Project context:** agents read `openspec/config.yaml` (`context:`), and `openspec/project.md` if present.
 
@@ -269,7 +269,7 @@ Read from the target repo's default branch before every job and validated strict
 
 The runner shares your Pro plan with you, so every Claude job (propose, build, fix, triage, migrate-prd) passes a gate first:
 
-1. **Windows:** a job only starts inside `RUN_WINDOWS` and only if the time left covers its estimate (the median of the last 10 runs of that kind; defaults propose 20 min, build 60, triage 15). A job still running `WINDOW_GRACE_MIN` after the window closes is checkpointed. Inside a window the next job starts as soon as the previous one finishes. Windows only pace the daemon: a command you run yourself (`work`, `triage`, `migrate-prd`, or a UI button) starts at any time, has no window deadline, and still passes the budget gate unless you add `--ignore-budget`.
+1. **Windows:** a job only starts inside `RUN_WINDOWS` and only if the time left covers its estimate (the median of the last 10 runs of that kind; defaults propose 30 min (including review), build 60, triage 15). A job still running `WINDOW_GRACE_MIN` after the window closes is checkpointed. Inside a window the next job starts as soon as the previous one finishes. Windows only pace the daemon: a command you run yourself (`work`, `triage`, `migrate-prd`, or a UI button) starts at any time, has no window deadline, and still passes the budget gate unless you add `--ignore-budget`.
 2. **Budget:** weekly ≥ `WEEKLY_STOP_PCT` holds non-urgent work until the weekly reset; 5-hour ≥ `FIVE_HOUR_START_MAX_PCT` holds non-urgent work; `urgent` ignores both (and windows) but never starts at ≥ `WEEKLY_HARD_STOP_PCT`.
 3. **Limit hit mid-run:** the run stops, work in progress is committed and pushed to `change/issue-N`, the issue goes back to its queue (not blocked), and nothing starts until the reset time.
 
@@ -285,7 +285,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 ## Security model
 
 - **Two users.** `runner` holds the GitHub credentials, state and logs and does every GitHub write and `git push`. `agent` runs Claude, installs and gates (agent-written code) through `sudo -u agent env -i …`, so it sees only Claude's own auth and the test service URLs. It can't read the runner's environment, `/data/state`, logs or the App key.
-- **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
+- **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage, proposal review). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
 - **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own issues and comments, such as triage split children) reach prompts or move state.
 - **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
@@ -296,6 +296,8 @@ In practice the percentages are often unknown until usage nears a threshold. The
 ## Troubleshooting
 
 **An item is `state:blocked`.** The latest bot comment says why; a draft PR holds any partial work, and its worktree is kept for `KEEP_BLOCKED_WORKTREES_DAYS` under the `worktrees` volume. Fix or answer, then relabel `state:ready` (re-propose) or `state:approved` (re-build; it resumes from `change/issue-N` if that branch exists). If the default branch itself is red, every build blocks: fix main first.
+
+**An item is stuck in `state:proposal-review`.** That state was retired (ADR-0017), so the runner no longer looks at it. Merge or close any open proposal PRs while an older image is still deployed so it can promote them, or relabel the issue by hand: `state:approved` if the proposal is already on the default branch, otherwise `state:ready`.
 
 **The firewall check fails.** `status` and the logs show the reason (also in the digest). Typical causes:
 

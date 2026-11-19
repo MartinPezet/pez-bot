@@ -17,25 +17,22 @@ describe('buildSummary', () => {
     const g = new FakeGitHub()
     const issues = [
       g.addIssue({ number: 1, title: 'A', labels: ['state:pr-review'] }),
-      g.addIssue({ number: 2, title: 'B', labels: ['state:proposal-review'] }),
       g.addIssue({ number: 3, title: 'C', labels: ['state:blocked'] }),
       g.addIssue({ number: 4, title: 'D', labels: ['state:needs-decision'] }),
       g.addIssue({ number: 5, title: 'E', labels: ['state:ready'] }),
     ]
     const prs = [
       g.addPr({ number: 10, headRefName: 'change/issue-1', createdAt: '2026-10-04T00:00:00Z' }),
-      g.addPr({ number: 11, headRefName: 'proposal/issue-2-b', createdAt: '2026-10-04T00:00:00Z' }),
       g.addPr({ number: 12, headRefName: 'change/issue-40', title: 'Shipped thing', state: 'MERGED', mergedAt: '2026-10-04T20:00:00Z' }),
       g.addPr({ number: 13, headRefName: 'change/issue-41', state: 'MERGED', mergedAt: '2026-10-01T20:00:00Z' }),
     ]
     const md = buildSummary({ issues, prs, blocked: new Map([[3, { reason: 'Gates still failing', times: 1 }]]), now }) ?? ''
     expect(md).toContain('🔍 PR to review: [#10]')
-    expect(md).toContain('📝 Proposal to review: [#11]')
     expect(md).toContain('🚧 Blocked: [#3](https://github.com/acme/app/issues/3) C: Gates still failing')
     expect(md).toContain('❓ Waiting on you: [#4]')
     expect(md).toContain('✅ [#12](https://github.com/acme/app/pull/12) Shipped thing')
     expect(md).not.toContain('#13')
-    expect(md).toContain('**Pipeline**: inbox 0 · needs-decision 1 · ready 1 · proposing 0 · proposal-review 1 · approved 0 · building 0 · pr-review 1 · blocked 1')
+    expect(md).toContain('**Pipeline**: inbox 0 · needs-decision 1 · ready 1 · proposing 0 · approved 0 · building 0 · pr-review 1 · blocked 1')
     expect(md).not.toContain('**Flags**')
   })
 

@@ -4,7 +4,7 @@ Why pez-bot exists and where its edges are. Read when scoping a feature, proposi
 
 ## Purpose
 
-pez-bot is a self-hosted runner that works through one GitHub backlog unattended. It uses Claude Code in headless mode to turn issues into OpenSpec proposals and then into implementation PRs, while the owner only reviews and merges.
+pez-bot is a self-hosted runner that works through one GitHub backlog unattended. It uses Claude Code in headless mode to turn issues into OpenSpec proposals, has a second agent review them, and turns them into implementation PRs, while the owner only reviews and merges those.
 
 ## Who it serves
 
@@ -12,7 +12,7 @@ A solo developer on a Claude Pro/Max plan who shares that plan's usage with the 
 
 ## Goals
 
-- **Human approves, bot executes.** Merging a PR is the only approval. The owner reviews proposals (cheap, high leverage) and implementation PRs. Everything between is automatic.
+- **Human approves, bot executes.** Merging the implementation PR is the only approval. It carries the proposal, which a reviewer agent has already checked against the issue (ADR-0017). Everything between is automatic.
 - **Safe unattended.** Agent-written code runs as a separate user with no access to secrets, behind a default-deny egress firewall.
 - **Project-agnostic.** The target repo is an input. Everything project-specific lives in that repo (`.backlog-runner.json`, `openspec/`, prompt overrides).
 - **Recoverable.** Restarts, usage limits and window ends checkpoint and resume; they don't lose work or block issues.

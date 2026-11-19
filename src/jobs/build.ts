@@ -10,7 +10,7 @@ import {
 import { kv } from '../state/db.js'
 import type { Deps, JobResult } from './types.js'
 
-/** The approved change for an issue, or an archived one (a resumed run that already archived). */
+/** The reviewed change for an issue, or an archived one (a resumed run that already archived). */
 export function findChange(dir: string, n: number): { id: string; archived: boolean } | null {
   const changes = path.join(dir, 'openspec', 'changes')
   const list = (p: string) => (existsSync(p) ? readdirSync(p) : [])
@@ -30,7 +30,7 @@ ${tail(gate.log, 30)}
 }
 
 /**
- * Approved change → apply → gates → fix loop → implementation PR. Resumes from an existing
+ * Reviewed change (pushed to `change/issue-N` by propose) → apply → gates → fix loop → implementation PR. Resumes from an existing
  * `change/issue-N` branch (merging the default branch in first); paused runs are pushed there.
  * After failed CI or new review comments (sync records them) it skips apply and starts the fix
  * loop from the CI log, or else the comments.
@@ -66,7 +66,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   }
 
   const change = findChange(dir, n)
-  if (!change) return block(d, issue, `No \`openspec/changes/issue-${n}-*\` on \`${d.branch}\`. Was the proposal merged?`, dir)
+  if (!change) return block(d, issue, `No \`openspec/changes/issue-${n}-*\` on \`${branch}\` or \`${d.branch}\`. Relabel \`state:ready\` to propose it again.`, dir)
 
   const [icmd = '', ...iargs] = d.project.install
   const inst = await d.run(icmd, iargs, { as: 'agent', cwd: dir, env: agentEnv(d), timeoutMs: 30 * 60_000 })
@@ -86,7 +86,8 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   const commitsBefore = await d.wt.commitsAhead(dir)
   let cost = { estCostUsd: 0, turns: 0 }
   let text = ''
-  if (!change.archived && !ciFailure && !feedback) {
+  const applies = !change.archived && !ciFailure && !feedback
+  if (applies) {
     const res = await askClaude(d, { model: 'build', tools: 'build', prompt: await d.prompt('apply', vars), cwd: dir, urgent, ignoreBudget: o.ignoreBudget })
     cost = sumCost(cost, res)
     if (isPause(res)) return { ...(await pause(d, issue, res, 'state:approved', dir, branch)), ...cost }
@@ -133,7 +134,9 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
       ...cost,
     }
   }
-  if ((await d.wt.commitsAhead(dir)) === 0) return { ...(await block(d, issue, 'Agent produced no commits.', dir)), ...cost }
+  // The branch starts with the spec commit, so count from where this run began.
+  // ponytail: a resumed run whose earlier checkpoint already held every task also lands here; rare, and the block says why.
+  if (applies && (await d.wt.commitsAhead(dir)) === commitsBefore) return { ...(await block(d, issue, 'Agent produced no commits.', dir)), ...cost }
   // Pushing nothing would leave the same red commit for sync to find again.
   if (ciFailure && (await d.wt.commitsAhead(dir)) === commitsBefore) {
     return { ...(await block(d, issue, `Agent made no commits to fix CI:\n\n${text.slice(0, 2000)}`, dir)), ...cost }
@@ -148,7 +151,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
 
   const url = await pushAndOpenPr(
     d, dir, branch, `${issue.title} (#${n})`,
-    `Implements \`openspec/changes/${change.id}\`.\n\n${text.slice(0, 4000)}\n\n${gateNote(d, gate)}\n\nCloses #${n}`,
+    `Implements \`openspec/changes/${change.id}\`. The proposal, written and reviewed by agents, is part of this PR: review it first.\n\n${text.slice(0, 4000)}\n\n${gateNote(d, gate)}\n\nCloses #${n}`,
   )
   await setState(d.gh, issue, 'state:pr-review')
   kv.del(d.db, CI_FIX_FAILURE(n))
