@@ -152,6 +152,13 @@ init() {
     iptables -A OUTPUT -p udp -d "$ns" --dport 53 -j ACCEPT
     iptables -A OUTPUT -p tcp -d "$ns" --dport 53 -j ACCEPT
   done < <(awk '$1 == "nameserver" && $2 ~ /^[0-9.]+$/ {print $2}' /etc/resolv.conf)
+  # On user-defined networks Docker's embedded DNS (127.0.0.11) forwards upstream from inside this
+  # network namespace as root, to the host's resolvers, whose addresses the container can't see.
+  # Root here is only tini, the entrypoint and the refresh loop; runner and agent never are.
+  if grep -qE '^nameserver[[:space:]]+127\.0\.0\.11$' /etc/resolv.conf; then
+    iptables -A OUTPUT -p udp --dport 53 -m owner --uid-owner 0 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 53 -m owner --uid-owner 0 -j ACCEPT
+  fi
 
   # Directly connected networks other than the one holding the default route: the sidecars.
   local egress_if net
