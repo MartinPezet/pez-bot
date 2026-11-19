@@ -16,6 +16,7 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
 │            ├─ GitHub layer (GraphQL + REST via fetch; DRY_RUN → log only) │
 │            ├─ Digest (Discussions, batched per job)                       │
 │            ├─ UsageGauge · BudgetRules · RunWindows                       │
+│            ├─ UI (:8377, Basic auth) → spawns the CLI                     │
 │            └─ sudo -u agent → claude -p … / install / gates               │
 └───────────┬─────────────────────────────────────────────────────────────┘
             │ internal network `testnet` (no egress)
@@ -23,7 +24,7 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
    postgres-test     redis-test
 ```
 
-`src/` folders map one-to-one onto the boxes above. `ui/` sits outside the box and the image: a host-side page that drives the container through `docker compose exec` (ADR-0015).
+`src/` folders map one-to-one onto the boxes above.
 
 ## State
 
@@ -55,6 +56,8 @@ Otherwise `sync` looks for new comments by `allowedAuthors` on the open implemen
 
 ## Gotchas
 
+- **The UI port is reachable from agent code unless blocked:** they share a network namespace, loopback included, so `init-firewall.sh` rejects the agent uid ahead of the loopback accept (ADR-0018). `UI_PORT` is set in both that script and `src/ui/server.ts`.
+- **UI commands are the daemon's children:** on shutdown they get SIGTERM so jobs can checkpoint, and share `stop_grace_period` with the daemon. Commands run through `docker compose exec` don't get this.
 - **CI logs need a firewall exception:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, allowed for the runner uid only (ADR-0016). Annotations are reachable from anywhere but often say only `Process completed with exit code 1`.
 - **The end of a job log is cleanup, not the failure:** after a failed step, GitHub's "Stop containers" step prints each service container's whole log (hundreds of Postgres health-check lines). `failingStep()` keeps only the step from its `##[group]Run` line to the first `##[error]` before tailing it.
 - **Claude Code allowlist syntax** is `Bash(git diff *)` (space before `*`), not the older `Bash(git diff:*)`.
