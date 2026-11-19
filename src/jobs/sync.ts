@@ -12,7 +12,7 @@ import type { Deps, JobResult } from './types.js'
  * (or blocks them), and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
  */
 export async function sync(d: Deps): Promise<JobResult> {
-  const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors)
+  const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors, d.botLogin)
   noteIgnored(d, ignored)
 
   let changed = 0
@@ -131,6 +131,20 @@ async function handleReviewFeedback(d: Deps, issue: Issue, prs: PullRequest[]): 
   return true
 }
 
+/**
+ * The failing step of a GitHub Actions job log, from its `##[group]Run` line to the first `##[error]`,
+ * without timestamps. The cleanup steps after it print every service container's log (Postgres
+ * health checks), which would otherwise fill the tail. Logs without an `##[error]` come back whole.
+ */
+export function failingStep(log: string): string {
+  const lines = log.split(/\r?\n/).map(l => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, ''))
+  const err = lines.findIndex(l => l.startsWith('##[error]'))
+  if (err < 0) return lines.join('\n')
+  let start = err
+  while (start > 0 && !lines[start]?.startsWith('##[group]Run ')) start--
+  return lines.slice(start, err + 1).join('\n')
+}
+
 /** Log tails of the failed jobs for the fix prompt, bounded so a noisy matrix can't flood it. */
 async function ciLogs(d: Deps, failed: FailedCheck[]): Promise<string> {
   const parts: string[] = []
@@ -139,7 +153,7 @@ async function ciLogs(d: Deps, failed: FailedCheck[]): Promise<string> {
       d.log.warn({ err, check: check.name }, 'could not read CI log')
       return null
     })
-    if (log) parts.push(`--- ${check.name} ---\n${tail(log, 200).slice(-20_000)}`)
+    if (log) parts.push(`--- ${check.name} ---\n${tail(failingStep(log), 200).slice(-20_000)}`)
   }
   return parts.join('\n\n')
 }

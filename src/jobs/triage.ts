@@ -42,7 +42,7 @@ export interface TriageItem {
 
 /** Inbox items (oldest first, at most 15) and needs-decision items whose latest comment is a maintainer's answer. */
 export async function gatherTriage(d: Deps): Promise<{ items: TriageItem[]; issues: Issue[] }> {
-  const issues = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors).allowed
+  const issues = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors, d.botLogin).allowed
   const items: TriageItem[] = []
   const toItem = async (i: Issue, kind: TriageItem['kind']): Promise<TriageItem> => ({
     kind,

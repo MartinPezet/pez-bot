@@ -203,9 +203,16 @@ describe('author allowlist', () => {
   it('splits issues by author, case-insensitively', () => {
     const g = new FakeGitHub()
     const issues = [g.addIssue({ number: 1, author: 'Martin' }), g.addIssue({ number: 2, author: 'stranger' })]
-    const r = partitionByAuthor(issues, ['martin'])
+    const r = partitionByAuthor(issues, ['martin'], 'pez-bot[bot]')
     expect(r.allowed.map(i => i.number)).toEqual([1])
     expect(r.ignored.map(i => i.number)).toEqual([2])
+  })
+
+  it("trusts the bot's own issues, such as triage split children", () => {
+    const g = new FakeGitHub()
+    const issues = [g.addIssue({ number: 1, author: 'pez-bot[bot]' }), g.addIssue({ number: 2, author: 'stranger' })]
+    expect(partitionByAuthor(issues, ['martin'], 'pez-bot[bot]').allowed.map(i => i.number)).toEqual([1])
+    expect(partitionByAuthor(issues, ['martin'], '').allowed).toEqual([])
   })
 
   it('keeps comments from allowed authors and the bot only', () => {
