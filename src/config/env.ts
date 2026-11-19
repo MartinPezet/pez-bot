@@ -88,4 +88,4 @@ export function loadEnv(raw: NodeJS.ProcessEnv = process.env): ParseResult<Env> 
 
 /** Every secret value in the environment, for the redactor. */
 export const envSecrets = (raw: NodeJS.ProcessEnv = process.env): (string | undefined)[] =>
-  [raw.GH_TOKEN, raw.CLAUDE_CODE_OAUTH_TOKEN, raw.ANTHROPIC_API_KEY, raw.GH_APP_PRIVATE_KEY]
+  [raw.GH_TOKEN, raw.CLAUDE_CODE_OAUTH_TOKEN, raw.ANTHROPIC_API_KEY, raw.GH_APP_PRIVATE_KEY, raw.UI_TOKEN]
