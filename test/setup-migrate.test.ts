@@ -78,13 +78,13 @@ describe('setup', () => {
     }
     const r = await setup(h.deps, { digestGh, project: h.deps.project, projectErrors: [] })
     expect(h.gh.labels.map(l => l.name)).toEqual(expect.arrayContaining(['state:inbox', 'urgent', 'area:core', 'area:ui']))
-    expect(r.report[0]).toMatch(/Labels on acme\/app: 22 created/)
+    expect(r.report[0]).toMatch(/Labels on acme\/app: 21 created/)
     expect(r.report).toContain('✓ Digest: "Demo" in "Daily Digest" on acme/digest')
     expect(h.gh.prs[0]).toMatchObject({ headRefName: 'setup/scaffold', title: 'Set up the backlog runner' })
     expect(r.outcome).toBe('noop')
 
     const again = await setup(h.deps, { digestGh, project: h.deps.project, projectErrors: [] })
-    expect(again.report[0]).toMatch(/0 created, 0 updated, 22 unchanged/)
+    expect(again.report[0]).toMatch(/0 created, 0 updated, 21 unchanged/)
     expect(h.gh.prs).toHaveLength(1)
   })
 

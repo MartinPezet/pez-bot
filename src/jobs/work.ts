@@ -13,24 +13,20 @@ export interface Candidate {
   issue: Issue
 }
 
-const openWith = (prs: PullRequest[], prefix: string) => prs.filter(p => p.state === 'OPEN' && p.headRefName.startsWith(prefix)).length
-
 /**
  * Pure: the next item, honouring WIP limits. Order: urgent first, then builds before proposals
  * (finish work before starting new work), then priority, then age. Urgent never bypasses WIP.
  * A build whose PR is already open adds nothing to review (a CI fix), so WIP doesn't hold it.
+ * Every approved item without a PR will open one, so proposals stop once those plus open
+ * implementation PRs reach `prsInReview`.
  */
-export function pickNext(
-  approved: Issue[],
-  ready: Issue[],
-  prs: PullRequest[],
-  wip: { proposalsInReview: number; prsInReview: number },
-): Candidate | null {
+export function pickNext(approved: Issue[], ready: Issue[], prs: PullRequest[], wip: { prsInReview: number }): Candidate | null {
+  const open = prs.filter(p => p.state === 'OPEN' && p.headRefName.startsWith('change/'))
+  const hasPr = (i: Issue) => open.some(p => p.headRefName === `change/issue-${i.number}`)
+  const queued = approved.filter(i => !hasPr(i)).length
   const cands: Candidate[] = [
-    ...approved
-      .filter(i => openWith(prs, 'change/') < wip.prsInReview || prs.some(p => p.state === 'OPEN' && p.headRefName === `change/issue-${i.number}`))
-      .map(issue => ({ kind: 'build' as const, issue })),
-    ...(openWith(prs, 'proposal/') < wip.proposalsInReview ? ready.map(issue => ({ kind: 'propose' as const, issue })) : []),
+    ...approved.filter(i => open.length < wip.prsInReview || hasPr(i)).map(issue => ({ kind: 'build' as const, issue })),
+    ...(open.length + queued < wip.prsInReview ? ready.map(issue => ({ kind: 'propose' as const, issue })) : []),
   ]
   cands.sort(
     (a, b) =>

@@ -172,7 +172,7 @@ describe('duration estimates', () => {
       finishRun(db, startRun(db, kind, null, t0), { outcome }, new Date(t0.getTime() + mins * 60_000))
     }
     expect(estimateMinutes(db, 'build')).toBe(60)
-    expect(estimateMinutes(db, 'propose')).toBe(20)
+    expect(estimateMinutes(db, 'propose')).toBe(30)
     for (const m of [30, 40, 50]) add('build', m)
     add('build', 5, 'paused')
     expect(estimateMinutes(db, 'build')).toBe(40)

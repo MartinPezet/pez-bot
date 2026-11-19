@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { isAllowedAuthor, partitionByAuthor, trustedComments } from '../github/authors.js'
 import type { Issue } from '../github/client.js'
 import { PRIORITIES, setState, SIZES, stateOf, TYPES, URGENT } from '../github/labels.js'
-import { askClaude, isPause } from './common.js'
+import { askClaude, cliJsonSchema, isPause } from './common.js'
 import type { Deps, JobResult } from './types.js'
 
 export const TRIAGE_LIMIT = 15
@@ -142,15 +142,8 @@ export async function applyTriage(d: Deps, entries: TriageEntry[], issues: Issue
   return counts
 }
 
-/**
- * The schema for `--json-schema`. Claude Code's validator rejects zod's default
- * `"$schema": ".../draft/2020-12/schema"` ("no schema with key or ref"), so emit draft-07
- * keywords and leave `$schema` out, letting the CLI use its default meta-schema.
- */
-export function triageJsonSchema(): object {
-  const { $schema: _, ...schema } = z.toJSONSchema(triageOutputSchema, { io: 'input', target: 'draft-7' })
-  return schema
-}
+/** The schema for `--json-schema`. */
+export const triageJsonSchema = (): object => cliJsonSchema(triageOutputSchema)
 
 export async function triage(d: Deps, o: { ignoreBudget: boolean }): Promise<JobResult> {
   const { items, issues } = await gatherTriage(d)

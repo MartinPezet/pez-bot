@@ -32,10 +32,6 @@ export function buildSummary(s: SummaryInput): string | null {
     const err = pr && s.ciUnreadable?.get(pr.number)
     if (err) needs.push(`- ❌ Can't read CI on ${link(pr)}, so failures there aren't being fixed: ${err.slice(0, 160)}. ${CI_READ_PERMISSIONS}`)
   }
-  for (const i of by('state:proposal-review')) {
-    const pr = openPr(p => p.headRefName.startsWith(`proposal/issue-${i.number}-`))
-    needs.push(`- 📝 Proposal to review: ${pr ? link(pr) : '(PR not found)'} ${i.title} (${link(i)})`)
-  }
   for (const i of by('state:blocked')) needs.push(`- 🚧 Blocked: ${link(i)} ${i.title}: ${s.blocked.get(i.number)?.reason || 'see the latest comment'}`)
   for (const i of by('state:needs-decision')) needs.push(`- ❓ Waiting on you: ${link(i)} ${i.title}`)
 
@@ -47,7 +43,7 @@ export function buildSummary(s: SummaryInput): string | null {
   for (const [n, b] of s.blocked) if (b.times >= 2) flags.push(`- #${n} has been blocked ${b.times} times.`)
   for (const p of s.prs) {
     const days = Math.floor((s.now.getTime() - Date.parse(p.createdAt)) / DAY)
-    if (p.state === 'OPEN' && /^(proposal|change)\//.test(p.headRefName) && days > 3) flags.push(`- ${link(p)} has been open for ${days} days.`)
+    if (p.state === 'OPEN' && p.headRefName.startsWith('change/') && days > 3) flags.push(`- ${link(p)} has been open for ${days} days.`)
   }
   if (by('state:ready').length === 0 && by('state:approved').length === 0) flags.push('- The ready queue is empty, so the runner is idle.')
 
