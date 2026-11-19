@@ -45,7 +45,7 @@ export function configTemplate(repo: string, commands: Commands = DEFAULT_COMMAN
       install: commands.install,
       gates: commands.gates,
       areas: ['core'],
-      wip: { proposalsInReview: 3, prsInReview: 3 },
+      wip: { prsInReview: 3 },
       maxFixAttempts: 2,
       testServices: {
         postgres: { version: '16', env: 'DATABASE_URL', database: 'app_test', schema: 'public' },
@@ -53,7 +53,7 @@ export function configTemplate(repo: string, commands: Commands = DEFAULT_COMMAN
       },
       timezone: 'Europe/London',
       allowedAuthors: [owner],
-      models: { propose: 'sonnet', build: 'sonnet', fix: 'sonnet', triage: 'sonnet', migrate: 'sonnet' },
+      models: { propose: 'sonnet', review: 'sonnet', build: 'sonnet', fix: 'sonnet', triage: 'sonnet', migrate: 'sonnet' },
     },
     null,
     2,

@@ -80,12 +80,17 @@ describe('project config', () => {
     const r = parseProjectConfig(JSON.stringify(minimalProject))
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.value.wip).toEqual({ proposalsInReview: 3, prsInReview: 3 })
+    expect(r.value.wip).toEqual({ prsInReview: 3 })
     expect(r.value.maxFixAttempts).toBe(2)
     expect(r.value.models.build).toBe('sonnet')
     expect(r.value.claude).toEqual({ maxTurns: 150, timeoutMin: 90, extraAllowedTools: [] })
     expect(r.value.timezone).toBe('Europe/London')
     expect(r.value.testServices).toEqual({})
+    expect(r.value.models.review).toBe('sonnet')
+  })
+
+  it('still loads a config with the retired wip.proposalsInReview', () => {
+    expect(parseProjectConfig(JSON.stringify({ ...minimalProject, wip: { proposalsInReview: 3, prsInReview: 2 } })).ok).toBe(true)
   })
 
   it('fills test service defaults', () => {

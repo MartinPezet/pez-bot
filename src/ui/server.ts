@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { Logger } from '../log.js'
 
 /**
- * Operator page, served by the daemon when UI_TOKEN is set (ADR-0017). Its commands are the CLI
+ * Operator page, served by the daemon when UI_TOKEN is set (ADR-0018). Its commands are the CLI
  * run as a child process, so they take the lease and behave exactly as they do from a terminal.
  */
 

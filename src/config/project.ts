@@ -42,7 +42,8 @@ export const projectSchema = z
     areas: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'must be lower-kebab-case')).min(1),
     wip: z
       .object({
-        proposalsInReview: z.number().int().min(1).default(3),
+        /** Ignored: proposals no longer open PRs. Still accepted so older configs load. */
+        proposalsInReview: z.number().int().min(1).optional(),
         prsInReview: z.number().int().min(1).default(3),
       })
       .strict()
@@ -84,7 +85,7 @@ export const projectSchema = z
     schedule: z.object({ sync: cron, summary: cron, update: cron, cleanup: cron }).strict().prefault({}),
     allowedAuthors: z.array(z.string().regex(/^[A-Za-z0-9-]+(\[bot\])?$/, 'must be a GitHub login')).min(1),
     models: z
-      .object({ propose: model, build: model, fix: model, triage: model, migrate: model })
+      .object({ propose: model, review: model, build: model, fix: model, triage: model, migrate: model })
       .strict()
       .prefault({}),
     claude: z

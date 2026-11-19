@@ -1,6 +1,6 @@
 # pez-bot
 
-A containerised runner that works through one GitHub backlog unattended, turning issues into approved proposals and then implementation PRs.
+A containerised runner that works through one GitHub backlog unattended, turning issues into reviewed proposals and then implementation PRs.
 
 ## Repos and people
 
@@ -38,11 +38,15 @@ The `state:*` label on an item; the set of states is the state machine.
 _Avoid_: status, stage, triage label (triage labels like `ready-for-agent` belong to this repo's own dev backlog, not to items)
 
 **Proposal**:
-An OpenSpec change under `openspec/changes/` opened as a PR; merging it is the owner's approval to build.
+An OpenSpec change under `openspec/changes/` written for an item. It reaches the owner inside the implementation PR, not as a PR of its own.
 _Avoid_: spec, plan, RFC
 
+**Proposal review**:
+A second agent, with a fresh context and read-only access, checking a proposal against its item before it is built. Passing it approves the item; gaps go back to the writer.
+_Avoid_: spec review, approval (approval is the owner merging the implementation PR)
+
 **Implementation PR**:
-The PR a build opens for an approved item.
+The PR a build opens for an approved item, holding the proposal and the code; merging it is the owner's only approval.
 
 **Urgent**:
 The owner-only label that jumps the queue and ignores windows and the soft budget, but not WIP limits.
@@ -60,7 +64,7 @@ One scheduled unit of runner work (`sync`, `work`, `triage`, `summary`, `update`
 _Avoid_: task, run (a run is one execution of a job)
 
 **Propose**:
-The `work` path that writes a proposal for a `ready` item.
+The `work` path that writes a proposal for a `ready` item and gets it through proposal review.
 
 **Build**:
 The `work` path that implements an `approved` item: apply, gates, fix loop, PR.
@@ -95,7 +99,7 @@ The rule set deciding whether a Claude job may start given usage, windows and ur
 _Avoid_: quota, limit (limits are Anthropic's; the gate is ours)
 
 **WIP limit**:
-The maximum open proposal PRs or implementation PRs before the runner stops starting new work.
+The maximum open implementation PRs, counting approved items that will open one, before the runner stops starting new work.
 
 ## Reporting
 

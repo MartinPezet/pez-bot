@@ -1,6 +1,6 @@
 import type { DB } from '../state/db.js'
 
-export const DEFAULT_ESTIMATE_MIN: Record<string, number> = { propose: 20, build: 60, triage: 15, migrate: 30 }
+export const DEFAULT_ESTIMATE_MIN: Record<string, number> = { propose: 30, build: 60, triage: 15, migrate: 30 }
 
 /**
  * Rolling median duration of the last 10 completed runs of a kind (ok or blocked; paused and

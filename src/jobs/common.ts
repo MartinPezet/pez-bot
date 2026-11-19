@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { Env } from '../config/env.js'
 import { trustedComments, renderComments } from '../github/authors.js'
 import type { Issue } from '../github/client.js'
@@ -126,11 +127,13 @@ const READ = ['Read', 'Glob', 'Grep']
 const WRITE = ['Edit', 'Write', 'TodoWrite', 'Task', 'Agent', 'Skill']
 const INSPECT = ['Bash(ls *)', 'Bash(cat *)', 'Bash(grep *)', 'Bash(find *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)']
 
-/** The reference allowlist, per kind. Propose can't commit; triage can't write. */
-export function allowedTools(kind: 'propose' | 'build' | 'triage' | 'migrate', extra: string[]): string[] {
+/** The reference allowlist, per kind. Propose can't commit; triage and review can't write. */
+export function allowedTools(kind: ToolKind, extra: string[]): string[] {
   switch (kind) {
     case 'triage':
       return [...READ, 'Bash(openspec list *)', 'Bash(git log *)', 'Bash(ls *)']
+    case 'review':
+      return [...READ, 'Bash(openspec list *)', 'Bash(openspec show *)', 'Bash(git log *)', 'Bash(ls *)']
     case 'propose':
       return [...READ, ...WRITE, ...INSPECT, 'Bash(openspec *)', ...extra]
     case 'migrate':
@@ -140,8 +143,10 @@ export function allowedTools(kind: 'propose' | 'build' | 'triage' | 'migrate', e
   }
 }
 
-/** Model key per call: `fix` runs during a build but has its own model setting. */
-export type ModelKey = 'propose' | 'build' | 'fix' | 'triage' | 'migrate'
+export type ToolKind = 'propose' | 'review' | 'build' | 'triage' | 'migrate'
+
+/** Model key per call: `fix` runs during a build and `review` during a propose, each with its own model setting. */
+export type ModelKey = 'propose' | 'review' | 'build' | 'fix' | 'triage' | 'migrate'
 
 /**
  * One Claude call with the job's model, limits and tool allowlist. PERMISSION_MODE is used as
@@ -150,7 +155,7 @@ export type ModelKey = 'propose' | 'build' | 'fix' | 'triage' | 'migrate'
  */
 export function askClaude(
   d: Deps,
-  o: { model: ModelKey; tools: 'propose' | 'build' | 'triage' | 'migrate'; prompt: string; cwd: string; urgent: boolean; ignoreBudget: boolean; jsonSchema?: object },
+  o: { model: ModelKey; tools: ToolKind; prompt: string; cwd: string; urgent: boolean; ignoreBudget: boolean; jsonSchema?: object },
 ): Promise<ClaudeResult> {
   return d.claude.run({
     prompt: o.prompt,
@@ -159,12 +164,22 @@ export function askClaude(
     maxTurns: d.project.claude.maxTurns,
     timeoutMs: d.project.claude.timeoutMin * 60_000,
     allowedTools: allowedTools(o.tools, d.project.claude.extraAllowedTools),
-    permissionMode: o.tools === 'triage' ? 'dontAsk' : d.env.PERMISSION_MODE,
+    permissionMode: o.tools === 'triage' || o.tools === 'review' ? 'dontAsk' : d.env.PERMISSION_MODE,
     env: claudeEnv(d),
     ...(o.jsonSchema ? { jsonSchema: o.jsonSchema } : {}),
     deadline: o.ignoreBudget ? null : d.gate.deadline(o.urgent),
     signal: d.signal,
   })
+}
+
+/**
+ * A zod schema for `--json-schema`. Claude Code's validator rejects zod's default
+ * `"$schema": ".../draft/2020-12/schema"` ("no schema with key or ref"), so emit draft-07
+ * keywords and leave `$schema` out, letting the CLI use its default meta-schema.
+ */
+export function cliJsonSchema(schema: z.ZodType): object {
+  const { $schema: _, ...rest } = z.toJSONSchema(schema, { io: 'input', target: 'draft-7' })
+  return rest
 }
 
 /** Claude failures that more turns can't fix. */

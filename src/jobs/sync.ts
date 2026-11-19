@@ -8,8 +8,8 @@ import type { Deps, JobResult } from './types.js'
 
 /**
  * No Claude. Recovers issues left mid-job by a dead run (requeue, or block on the second time
- * in 24 h), promotes proposal PRs (merged → approved, closed → needs-decision), handles review PRs
- * that failed CI (back to the build with the log, or blocked), and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
+ * in 24 h), sends implementation PRs that failed CI or got review comments back to the build
+ * (or blocks them), and notes issues from authors outside the allowlist once. The default branch is fetched by the job runner.
  */
 export async function sync(d: Deps): Promise<JobResult> {
   const { allowed, ignored } = partitionByAuthor(await d.gh.listIssues(), d.project.allowedAuthors, d.botLogin)
@@ -24,10 +24,7 @@ export async function sync(d: Deps): Promise<JobResult> {
     }
   }
   const prs = await d.gh.listPrs()
-  for (const issue of allowed.filter(i => stateOf(i) === 'state:proposal-review')) {
-    if (await promote(d, issue, prs)) changed++
-  }
-  for (const issue of allowed.filter(i => stateOf(i) === 'state:proposal-review' || stateOf(i) === 'state:pr-review')) {
+  for (const issue of allowed.filter(i => stateOf(i) === 'state:pr-review')) {
     if (await handleFailedCi(d, issue, prs)) changed++
     else if (await handleReviewFeedback(d, issue, prs)) changed++
   }
@@ -57,34 +54,14 @@ async function recover(d: Deps, issue: Issue, s: 'state:proposing' | 'state:buil
   d.digest.add('♻️', `Requeued #${issue.number} ${issue.title} after an interrupted run`, issue.url)
 }
 
-/** The newest proposal PR for the issue decides: merged = approved, closed = needs a decision. */
-export async function promote(d: Deps, issue: Issue, prs: PullRequest[]): Promise<boolean> {
-  const latest = prs
-    .filter(p => p.headRefName.startsWith(`proposal/issue-${issue.number}-`))
-    .sort((a, b) => b.number - a.number)[0]
-  if (!latest || latest.state === 'OPEN') return false
-  if (latest.state === 'MERGED') {
-    await setState(d.gh, issue, 'state:approved')
-    d.digest.add('✅', `Proposal approved for #${issue.number} ${issue.title}`, latest.url)
-  } else {
-    await setState(d.gh, issue, 'state:needs-decision')
-    await d.gh.comment(
-      issue.number,
-      `Proposal ${latest.url} was closed without merging. Comment on what should change, then relabel \`state:ready\` to re-propose.`,
-    )
-    d.digest.add('❌', `Proposal rejected for #${issue.number} ${issue.title}`, latest.url)
-  }
-  return true
-}
-
 /**
- * A review PR with failed CI isn't ready for review; pending or green CI leaves it alone.
- * An implementation PR goes back to the build with the CI log, up to `maxFixAttempts` times.
- * Everything else blocks: proposals (rarely their fault), no readable log (a fix would be blind).
+ * An implementation PR with failed CI isn't ready for review; pending or green CI leaves it alone.
+ * It goes back to the build with the CI log, up to `maxFixAttempts` times. No readable log blocks
+ * (a fix would be blind).
  */
 async function handleFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promise<boolean> {
   const n = issue.number
-  const pr = prs.find(p => p.state === 'OPEN' && (p.headRefName === `change/issue-${n}` || p.headRefName.startsWith(`proposal/issue-${n}-`)))
+  const pr = prs.find(p => p.state === 'OPEN' && p.headRefName === `change/issue-${n}`)
   if (!pr) return false
   // Unreadable CI is unknown, not green: say so once per PR, or a red PR sits in review forever.
   // Don't fail the whole sync over it (an App without Checks/Commit statuses read can't see CI).
@@ -112,7 +89,6 @@ async function handleFailedCi(d: Deps, issue: Issue, prs: PullRequest[]): Promis
     await block(d, issue, `${failure}${why} Fix it on \`${pr.headRefName}\`.`)
     return true
   }
-  if (stateOf(issue) !== 'state:pr-review') return stop('')
 
   // ponytail: attempts count per issue until it blocks, so green CI in between doesn't reset them.
   const attempts = Number(kv.get(d.db, CI_FIX_ATTEMPTS(n)) ?? 0)

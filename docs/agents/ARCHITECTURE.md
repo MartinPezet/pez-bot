@@ -36,6 +36,10 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
 
 Every job runs through one wrapper: take the lease → insert a `job_runs` row → run → record outcome, duration and est. cost → flush the digest batch → heartbeat → per-job cleanup → health ping (or `/fail`). CLI invocations that find the lease held exit 75; read-only commands (`status`, `usage`) skip it.
 
+## Proposal review
+
+`propose` writes the change on a fresh `change/issue-N` worktree and validates it. A second Claude call (prompt `review-proposal`, model `review`, read-only tools, `--json-schema`) then checks it against the issue and its trusted thread and returns `pass`, `revise` (with gaps) or `needs-decision`. `revise` runs the writer again (prompt `revise-proposal`), then validation and review again, up to `maxFixAttempts` times before it blocks. An unreadable verdict blocks; it never passes. On `pass` only the change folder is committed and pushed to `change/issue-N`, with no PR, and the issue goes to `approved`. `build` resumes that branch, so it starts one commit ahead of the default branch: "no commits" means none since the run began.
+
 ## Checkpoints (build and propose)
 
 The Claude wrapper watches the stream-json output. On `rate_limit_event.status == "rejected"`, window end + grace, or SIGTERM, it sends **SIGINT** (clean turn end), then SIGTERM after 30 s. SIGTERM alone exits 143 with no result. The runner then commits leftovers as `wip: checkpoint …`, pushes `change/issue-N` (build only; a propose just re-runs), returns the issue to `approved`/`ready`, writes `checkpoints` + `paused_until`, and posts to the digest. The next build finds the branch and resumes.
@@ -46,13 +50,13 @@ Agents end with `NEEDS_DECISION:`, `NEEDS_SPLIT:` or `BLOCKED:`. The parser take
 
 ## CI on review PRs
 
-`sync` reads the status check rollup of each open review PR. A failed implementation PR gets its log tail stored in `kv` and returns to `approved`; the next build skips apply, seeds the fix loop with that log (prompt `fix-ci`, since it was never compared with the default branch), and pushes to the same PR. WIP limits don't hold it, because it adds no PR. Attempts are capped by `maxFixAttempts`, and `block()` clears them. A failed proposal PR or an unreadable log blocks straight away.
+`sync` reads the status check rollup of each open review PR. A failed implementation PR gets its log tail stored in `kv` and returns to `approved`; the next build skips apply, seeds the fix loop with that log (prompt `fix-ci`, since it was never compared with the default branch), and pushes to the same PR. WIP limits don't hold it, because it adds no PR. Attempts are capped by `maxFixAttempts`, and `block()` clears them. An unreadable log blocks straight away.
 
 Otherwise `sync` looks for new comments by `allowedAuthors` on the open implementation PR: conversation comments, review bodies and inline comments, newer than the `review.seen.<pr>` watermark (none on first sight, so every earlier comment counts). They go into `kv` and the issue returns to `approved`; the next build skips apply, seeds the fix loop with them (prompt `fix-review`) and pushes to the same PR. Failed CI goes first. If the agent commits nothing (a question, or nothing to change), its answer is posted and the issue goes back to `pr-review`. Feedback isn't capped: each round needs a new human comment. `block()` keeps it, so a relabel to `approved` retries it.
 
 ## Gotchas
 
-- **The UI port is reachable from agent code unless blocked:** they share a network namespace, loopback included, so `init-firewall.sh` rejects the agent uid ahead of the loopback accept (ADR-0017). `UI_PORT` is set in both that script and `src/ui/server.ts`.
+- **The UI port is reachable from agent code unless blocked:** they share a network namespace, loopback included, so `init-firewall.sh` rejects the agent uid ahead of the loopback accept (ADR-0018). `UI_PORT` is set in both that script and `src/ui/server.ts`.
 - **UI commands are the daemon's children:** on shutdown they get SIGTERM so jobs can checkpoint, and share `stop_grace_period` with the daemon. Commands run through `docker compose exec` don't get this.
 - **CI logs need a firewall exception:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, allowed for the runner uid only (ADR-0016). Annotations are reachable from anywhere but often say only `Process completed with exit code 1`.
 - **The end of a job log is cleanup, not the failure:** after a failed step, GitHub's "Stop containers" step prints each service container's whole log (hundreds of Postgres health-check lines). `failingStep()` keeps only the step from its `##[group]Run` line to the first `##[error]` before tailing it.
