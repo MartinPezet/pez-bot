@@ -64,7 +64,7 @@ Otherwise `sync` looks for new comments by `allowedAuthors` on the open implemen
 - **`DISABLE_AUTOUPDATER=1`, never `DISABLE_UPDATES`**: the latter also blocks `claude update`/`claude install`, which the `update` job needs.
 - **An empty `--allowedTools` list makes the CLI reject the call.** Omit the flag instead.
 - **Agent umask:** sudo unions umasks, so `sudoers.agent` sets `umask=0002`; otherwise the runner can't commit or delete agent-written files.
-- **Firewall DNS** is allowed to the resolvers in `/etc/resolv.conf`, not just `127.0.0.11` (only present on user-defined networks).
+- **Firewall DNS** is allowed to the resolvers in `/etc/resolv.conf`, not just `127.0.0.11` (only present on user-defined networks). Behind `127.0.0.11`, Docker's embedded resolver forwards upstream from inside the container's network namespace as root (seen on engine 20.10), to host resolvers the container can't see, so port 53 to any address is open to uid 0 only. Docker may write its `127.0.0.11` NAT rules with iptables-legacy while the image uses nft; the nft flush leaves them in place, so the preservation step finding nothing is fine.
 - **Dry run covers git:** `DRY_RUN=1` also skips `git push` and remote branch deletion.
 - **Schedule overrides are read at daemon start**; changes need a restart.
 - **GitHub Discussions:** no title filter (page and match exactly, then cache the node ID); `replyToId` must be a top-level comment; no mutation creates categories.
