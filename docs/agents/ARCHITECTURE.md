@@ -31,6 +31,7 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
 - **GitHub is the source of truth.** `state:*` labels are the state machine (flow diagram in `README.md`).
 - **SQLite holds only runner-local facts:** job runs, usage readings, digest IDs, checkpoints, update history, caches, and the job lease.
 - **Project config is read from the target repo's default branch at job start**, never from a worktree, so agent edits can't change config or inject prompt overrides.
+- **The one worktree-read file is `.backlog-runner.env`** (ADR-0019): dummy test env the agent adds for its own code. `agentEnv(d, dir)` reads it fresh on every call and lays it *under* everything the runner sets; `runGates` fails on refused entries before running any gate.
 
 ## Job wrapper
 

@@ -73,6 +73,10 @@ The `work` path that implements an `approved` item: apply, gates, fix loop, PR.
 A command from `.backlog-runner.json` `gates` that must pass before a build opens its PR.
 _Avoid_: check, CI (CI is GitHub's; gates run inside the container)
 
+**Branch test env**:
+The dummy env vars the bot commits alongside its own code so its gates can boot the app. It can add variables but never replace ones the owner's config sets; production values stay the owner's.
+_Avoid_: test secrets, env config
+
 **Fix loop**:
 Up to `maxFixAttempts` Claude rounds that repair failing gates, a failed CI run, or review feedback on the item's open PR.
 
