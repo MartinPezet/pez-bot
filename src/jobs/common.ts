@@ -31,7 +31,7 @@ export const firstLine = (s: string) => s.trim().split('\n')[0]?.slice(0, 160) ?
 
 /**
  * Dummy test env the agent keeps in the target repo, read from the worktree rather than the
- * default branch (ADR-0018). It can only add names: everything the runner sets wins over it.
+ * default branch (ADR-0019). It can only add names: everything the runner sets wins over it.
  */
 export const BRANCH_ENV_FILE = '.backlog-runner.env'
 /** Names that change how tools run rather than what the app reads. */
