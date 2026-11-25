@@ -261,6 +261,12 @@ Read from the target repo's default branch before every job and validated strict
 | `claude.maxTurns`, `claude.timeoutMin` | `150`, `90` | Per Claude call. |
 | `claude.extraAllowedTools` | `[]` | Extra tool rules for propose/build, for example `["Bash(node ace *)"]`. |
 
+**Branch test env: `.backlog-runner.env`.** The bot manages this one itself, so you don't add test env by hand. When code it writes reads a new env var, it commits a dummy value to `.backlog-runner.env` (dotenv `NAME=value`) at the repo root and to your env template (`.env.example`), and lists the variable under **Production config needed** in the PR body: setting the real production value is your only step. The runner reads the file from the bot's branch for installs and gates. It can only add names: `extraTestEnv` and the test-service variables win on a clash, names that change how tools run (`PATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`, `npm_config_*`, …) are refused, and so are values that look like credentials; a refused entry fails the gates and goes to the fix agent. GitHub Actions doesn't see the file unless your workflow loads it, and the bot can't edit workflows, so add this step once to each job that runs tests:
+
+```yaml
+- run: '[ -f .backlog-runner.env ] && grep -E "^[A-Z_][A-Z0-9_]*=" .backlog-runner.env >> "$GITHUB_ENV" || true'
+```
+
 **Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `review-proposal`, `revise-proposal`, `apply`, `fix`, `fix-ci`, `fix-review`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
 
 **Project context:** agents read `openspec/config.yaml` (`context:`), and `openspec/project.md` if present.
@@ -286,6 +292,7 @@ In practice the percentages are often unknown until usage nears a threshold. The
 
 - **Two users.** `runner` holds the GitHub credentials, state and logs and does every GitHub write and `git push`. `agent` runs Claude, installs and gates (agent-written code) through `sudo -u agent env -i …`, so it sees only Claude's own auth and the test service URLs. It can't read the runner's environment, `/data/state`, logs or the App key.
 - **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage, proposal review). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
+- **Config from the default branch.** `.backlog-runner.json` and prompt overrides are only read from the default branch, so the agent can't change its gates, authors or tools. The exception is `.backlog-runner.env`, which only adds dummy test variables (see above) and shows in the PR diff.
 - **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own issues and comments, such as triage split children) reach prompts or move state.
 - **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).

@@ -12,7 +12,7 @@ const envName = z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'must be an UPPER_SNAKE e
 const ident = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'must be a plain SQL identifier')
 const version = z.string().regex(/^\d+(\.\d+)*$/, 'must be a version number like "16" or "7.2"')
 /** Same token/key patterns the log redactor uses: this file is committed, so values must be dummies. */
-const looksLikeCredential = (v: string) => new Redactor().string(v) !== v
+export const looksLikeCredential = (v: string) => new Redactor().string(v) !== v
 const model = z.string().regex(/^[\w.[\]-]+$/, 'must be a model alias or id').default('sonnet')
 
 const isTimeZone = (tz: string) => {

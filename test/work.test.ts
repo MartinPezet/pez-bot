@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { pickNext, work } from '../src/jobs/work.js'
@@ -256,6 +256,42 @@ describe('build', () => {
     expect((await work(h.deps, { ignoreBudget: false })).outcome).toBe('ok')
     expect(testRuns).toBe(1)
     expect(h.claude.calls[1]?.prompt).toContain('FAIL x.test.ts')
+  })
+
+  it('adds the branch env file to gates without letting it replace runner variables', async () => {
+    const h = harness({ project: { extraTestEnv: { APP_KEY: 'from-config' } } })
+    approvedIssue(h)
+    h.claude.then(req => {
+      writeFileSync(path.join(req.cwd, '.backlog-runner.env'), '# dummies\nSTRIPE_SECRET_KEY=sk_dummy\nAPP_KEY=from-branch\nDATABASE_URL=postgres://elsewhere/x\n')
+      return applyCommits(h)(req)
+    })
+    expect((await work(h.deps, { ignoreBudget: false })).outcome).toBe('ok')
+    const gate = h.runs.find(x => x.cmd === 'pnpm' && x.args[0] === 'test')
+    expect(gate?.opts?.env).toMatchObject({
+      STRIPE_SECRET_KEY: 'sk_dummy',
+      APP_KEY: 'from-config',
+      DATABASE_URL: 'postgres://test:test@postgres-test:5432/app_test',
+    })
+  })
+
+  it('fails the gates on refused branch env entries and hands them to the fix agent', async () => {
+    const h = harness()
+    approvedIssue(h)
+    const file = (dir: string) => path.join(dir, '.backlog-runner.env')
+    h.claude
+      .then(req => {
+        writeFileSync(file(req.cwd), 'NODE_OPTIONS=--require ./x.js\nGH=ghp_' + 'a'.repeat(36) + '\n')
+        return applyCommits(h)(req)
+      })
+      .then(req => {
+        writeFileSync(file(req.cwd), 'STRIPE_SECRET_KEY=sk_dummy\n')
+        return { text: 'fixed' }
+      })
+    expect((await work(h.deps, { ignoreBudget: false })).outcome).toBe('ok')
+    const fixPrompt = h.claude.calls[1]?.prompt ?? ''
+    expect(fixPrompt).toContain('error: NODE_OPTIONS is reserved')
+    expect(fixPrompt).toContain('error: GH looks like a real credential')
+    expect(fixPrompt).not.toContain('ghp_')
   })
 
   it('opens the PR when gates fail only with errors already on the default branch', async () => {
