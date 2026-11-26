@@ -18,4 +18,6 @@ Failures not listed there exist on `origin/{{DEFAULT_BRANCH}}` too: leave them a
 
 Find the root cause and fix it (use the systematic-debugging skill if available). Same rules as the implementation run: stay in scope, never weaken tests or lint rules, never push. Commit the fix as `fix(<scope>): <summary> (#{{ISSUE_NUMBER}})`.
 
+If a failure is a missing environment variable that this change's code now reads, add it with a dummy value to `.backlog-runner.env` at the repo root and to the committed env template (`.env.example` or similar), rather than stopping. The runner loads that file into the gates; it never overrides variables the runner sets.
+
 Don't end with `BLOCKED:` because of failures that also exist on the default branch; the runner has already excluded them. Use `BLOCKED:` only if a new failure is outside this change's scope and you can't fix it. Run commands from the repo root with `git -C` or `npm --prefix`; never `cd` to an absolute path.

@@ -1,5 +1,9 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { parseEnv } from 'node:util'
 import { z } from 'zod'
 import type { Env } from '../config/env.js'
+import { looksLikeCredential } from '../config/project.js'
 import { trustedComments, renderComments } from '../github/authors.js'
 import type { Issue } from '../github/client.js'
 import { setState, type State } from '../github/labels.js'
@@ -25,10 +29,38 @@ export const slug = (s: string) =>
 
 export const firstLine = (s: string) => s.trim().split('\n')[0]?.slice(0, 160) ?? ''
 
-/** Environment for agent-run code (installs, gates): test services only, no secrets. */
-export function agentEnv(d: Deps): Record<string, string> {
+/**
+ * Dummy test env the agent keeps in the target repo, read from the worktree rather than the
+ * default branch (ADR-0019). It can only add names: everything the runner sets wins over it.
+ */
+export const BRANCH_ENV_FILE = '.backlog-runner.env'
+/** Names that change how tools run rather than what the app reads. */
+const RESERVED_ENV = /^(PATH|HOME|USER|SHELL|TMPDIR|CI|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|LD_\w+|DYLD_\w+|GIT_\w+|NPM_CONFIG_\w+|COREPACK_\w+|CLAUDE_\w+|ANTHROPIC_\w+)$/i
+
+export function branchEnv(dir: string): { env: Record<string, string>; problems: string[] } {
+  let text: string
+  try {
+    text = readFileSync(path.join(dir, BRANCH_ENV_FILE), 'utf8')
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { env: {}, problems: [] }
+    throw e
+  }
+  const env: Record<string, string> = {}
+  const problems: string[] = []
+  for (const [k, v = ''] of Object.entries(parseEnv(text))) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(k)) problems.push(`${k} must be an UPPER_SNAKE env var name`)
+    else if (RESERVED_ENV.test(k)) problems.push(`${k} is reserved: the runner sets or forbids it`)
+    else if (looksLikeCredential(v)) problems.push(`${k} looks like a real credential: use a dummy value`)
+    else env[k] = v
+  }
+  return { env, problems }
+}
+
+/** Environment for agent-run code (installs, gates): test services only, no secrets. `dir` adds the branch's own env file. */
+export function agentEnv(d: Deps, dir?: string): Record<string, string> {
   const e = d.env
   const env: Record<string, string> = {
+    ...(dir ? branchEnv(dir).env : {}),
     CI: '1',
     GIT_AUTHOR_NAME: e.BOT_GIT_NAME,
     GIT_AUTHOR_EMAIL: e.BOT_GIT_EMAIL,
@@ -113,8 +145,8 @@ export function claudeAuthEnv(env: Env): Record<string, string> {
 }
 
 /** Claude's environment: agent env plus Claude's own auth. Never a GitHub token. */
-export function claudeEnv(d: Deps): Record<string, string> {
-  return { ...agentEnv(d), ...claudeAuthEnv(d.env) }
+export function claudeEnv(d: Deps, dir?: string): Record<string, string> {
+  return { ...agentEnv(d, dir), ...claudeAuthEnv(d.env) }
 }
 
 export function withDatabase(url: string, database: string): string {
@@ -165,7 +197,7 @@ export function askClaude(
     timeoutMs: d.project.claude.timeoutMin * 60_000,
     allowedTools: allowedTools(o.tools, d.project.claude.extraAllowedTools),
     permissionMode: o.tools === 'triage' || o.tools === 'review' ? 'dontAsk' : d.env.PERMISSION_MODE,
-    env: claudeEnv(d),
+    env: claudeEnv(d, o.cwd),
     ...(o.jsonSchema ? { jsonSchema: o.jsonSchema } : {}),
     deadline: o.ignoreBudget ? null : d.gate.deadline(o.urgent),
     signal: d.signal,
@@ -311,8 +343,11 @@ async function mustRun(d: Deps, cmd: string, args: string[]) {
 }
 
 export async function runGates(d: Deps, dir: string): Promise<{ ok: boolean; log: string }> {
+  // Refused entries fail the gates (as `error:` lines, so the baseline comparison sees them) and reach the fix agent.
+  const { problems } = branchEnv(dir)
+  if (problems.length) return { ok: false, log: `${BRANCH_ENV_FILE}: the runner refused some entries\n${problems.map(p => `error: ${p}`).join('\n')}` }
   for (const [cmd = '', ...args] of d.project.gates) {
-    const r = await d.run(cmd, args, { as: 'agent', cwd: dir, env: agentEnv(d), timeoutMs: 45 * 60_000 })
+    const r = await d.run(cmd, args, { as: 'agent', cwd: dir, env: agentEnv(d, dir), timeoutMs: 45 * 60_000 })
     if (r.exitCode !== 0) return { ok: false, log: `$ ${[cmd, ...args].join(' ')}\n${tail(r.all, 150)}` }
   }
   return { ok: true, log: '' }
@@ -329,7 +364,7 @@ async function baselineGateLog(d: Deps): Promise<string> {
     const cached = kv.get(d.db, key)
     if (cached !== undefined) return cached
     const [icmd = '', ...iargs] = d.project.install
-    const inst = await d.run(icmd, iargs, { as: 'agent', cwd: dir, env: agentEnv(d), timeoutMs: 30 * 60_000 })
+    const inst = await d.run(icmd, iargs, { as: 'agent', cwd: dir, env: agentEnv(d, dir), timeoutMs: 30 * 60_000 })
     if (inst.exitCode !== 0) throw new Error(`Install failed on ${d.branch}:
 ${tail(inst.all, 30)}`)
     await resetTestServices(d)

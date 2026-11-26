@@ -137,6 +137,6 @@ export function parseReview(r: ClaudeResult): ProposalReview | string {
 }
 
 async function validate(d: Deps, dir: string, changeId: string) {
-  const r = await d.run('openspec', ['validate', changeId, '--strict', '--no-interactive'], { as: 'agent', cwd: dir, env: agentEnv(d) })
+  const r = await d.run('openspec', ['validate', changeId, '--strict', '--no-interactive'], { as: 'agent', cwd: dir, env: agentEnv(d, dir) })
   return { ok: r.exitCode === 0, log: r.all }
 }

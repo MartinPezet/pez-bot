@@ -69,7 +69,7 @@ export async function build(d: Deps, issue: Issue, o: { ignoreBudget: boolean })
   if (!change) return block(d, issue, `No \`openspec/changes/issue-${n}-*\` on \`${branch}\` or \`${d.branch}\`. Relabel \`state:ready\` to propose it again.`, dir)
 
   const [icmd = '', ...iargs] = d.project.install
-  const inst = await d.run(icmd, iargs, { as: 'agent', cwd: dir, env: agentEnv(d), timeoutMs: 30 * 60_000 })
+  const inst = await d.run(icmd, iargs, { as: 'agent', cwd: dir, env: agentEnv(d, dir), timeoutMs: 30 * 60_000 })
   if (inst.exitCode !== 0) return block(d, issue, `Install failed:\n\`\`\`\n${tail(inst.all, 60)}\n\`\`\``, dir, branch)
 
   const vars = {

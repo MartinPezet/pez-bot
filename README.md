@@ -36,7 +36,7 @@ Labels are the state machine. Merging the implementation PR is the only human ap
 - [First run](#first-run)
 - [Your daily loop](#your-daily-loop)
 - [Commands](#commands)
-- [Local UI](#local-ui)
+- [Web UI](#web-ui)
 - [Testing against a sandbox repo](#testing-against-a-sandbox-repo)
 - [Environment variables](#environment-variables)
 - [Project config: `.backlog-runner.json`](#project-config-backlog-runnerjson)
@@ -51,7 +51,8 @@ Labels are the state machine. Merging the implementation PR is the only human ap
 
 **GitHub App (recommended).** Create an App under your account (Settings → Developer settings → GitHub Apps):
 
-- Repository permissions: **Contents** read/write, **Issues** read/write, **Pull requests** read/write, **Discussions** read/write, **Checks** read, **Commit statuses** read, **Actions** read, **Metadata** read.
+- Repository permissions: **Contents** read/write, **Issues** read/write, **Pull requests** read/write, **Discussions** read/write, **Checks** read, **Commit statuses** read, **Actions** read, **Workflows** read/write, **Metadata** read.
+- **Workflows** lets the bot add the `.backlog-runner.env` load step to your CI workflows (see [Project config](#project-config-backlog-runnerjson)); without it GitHub rejects any push that touches `.github/workflows/`. Leave it off if you'd rather add that step yourself, and read the security note on it first. After adding a permission to an existing App, accept the change on the installation (Settings → Applications → Installed GitHub Apps), or tokens won't carry it.
 - No webhook needed.
 - Install it on the target repo **and** the digest repo. Both must be under the same owner, so one installation covers them.
 - Note the App ID and the installation ID (the number at the end of the installation's settings URL), and generate a private key.
@@ -170,23 +171,33 @@ Run as `docker compose exec runner pez-bot <cmd>` (preferred) or `docker compose
 
 Schedule (in the project's time zone): `sync` every 20 min, `work` every 5 min and continuously while it finds work inside a window, `triage` at the start of each window, `summary` weekdays 07:30, `update` 03:00 and on start, `cleanup` 04:00 and after every job. Override with `schedule` in `.backlog-runner.json` (restart to apply).
 
-## Local UI
+## Web UI
 
-A page for running these commands and reading failed runs. It runs on the machine with Docker access, from this checkout:
+A page for running these commands and reading failed runs, served by the runner container. It needs nothing on the server beyond Docker, and it's off until you set a password.
+
+1. Add a password to `.env`, then restart with `docker compose up -d`:
+
+   ```bash
+   UI_TOKEN=<output of: openssl rand -hex 32>
+   ```
+
+2. From your own machine, open a tunnel to the server:
+
+   ```bash
+   ssh -L 8377:localhost:8377 your-server
+   ```
+
+3. Open `http://localhost:8377`. The browser asks for a login: enter anything as the username and `UI_TOKEN` as the password. On the server itself, skip the tunnel.
+
+Each button runs that command in the container and streams the output. Closing the tab doesn't stop a running job. `--ignore-budget` runs and `migrate-prd --apply` ask first. `daemon` isn't offered, and `migrate-prd --path` still needs the CLI. The failed-runs log refreshes every 30 seconds and after each command.
+
+The page is plain HTTP, so `UI_PUBLISH` keeps it on the server's loopback by default. Anyone who can reach the port and has the password can run these commands, including `--ignore-budget`. If you publish it more widely, put it behind TLS, or the password crosses your network in the clear.
+
+To check agent code can't reach it, run this on the server. It should fail with curl exit code 7 and no HTTP response:
 
 ```bash
-npm ci
-npm run ui    # http://localhost:8377
+docker compose exec -u agent runner curl -sS --connect-timeout 5 http://127.0.0.1:8377/
 ```
-
-Each button runs `docker compose exec -T runner pez-bot <command>` and streams the output. Closing the tab doesn't stop a running job. `--ignore-budget` runs and `migrate-prd --apply` ask first. `daemon` isn't offered, and `migrate-prd --path` still needs the CLI. The failed-runs log refreshes every 30 seconds and after each command.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PEZ_BOT_UI_PORT` | `8377` | Port, on `127.0.0.1` only. |
-| `PEZ_BOT_UI_EXEC` | `docker compose exec -T runner pez-bot` | How to reach the CLI. For a server deployment: `docker compose -f deploy/docker-compose.yml exec -T runner pez-bot`, or an `ssh` prefix. |
-
-These are set in your shell, not `.env`. There's no login: any local user or process on that machine can reach the port and run these commands, so use it only on a machine that's yours, and don't tunnel or proxy it to a wider network.
 
 ## Testing against a sandbox repo
 
@@ -231,6 +242,8 @@ Account-level settings live in `.env`, not in project config, because the usage 
 | `MIN_FREE_DISK_GB` | `10` | Disk guard threshold. |
 | `HEALTH_PING_URL` | | healthchecks.io / Uptime Kuma push URL: pinged after each job, `/fail` on errors. Its host is added to the firewall. |
 | `EXTRA_ALLOWED_DOMAINS` | | Comma-separated extra hosts for the egress firewall (for example a private registry your install needs). |
+| `UI_TOKEN` | | Password for the [web UI](#web-ui), at least 16 characters. Unset: no UI. |
+| `UI_PUBLISH` | `127.0.0.1:8377` | Host address and port for the web UI (compose). |
 | `INSTALL_SUPERPOWERS` | `false` | Install and update the Superpowers plugin. |
 | `CLAUDE_CHANNEL` | `stable` | Claude Code release channel used by `update`. |
 | `LOG_LEVEL` | `info` | |
@@ -262,6 +275,12 @@ Read from the target repo's default branch before every job and validated strict
 | `claude.maxTurns`, `claude.timeoutMin` | `150`, `90` | Per Claude call. |
 | `claude.extraAllowedTools` | `[]` | Extra tool rules for propose/build, for example `["Bash(node ace *)"]`. |
 
+**Branch test env: `.backlog-runner.env`.** The bot manages this one itself, so you don't add test env by hand. When code it writes reads a new env var, it commits a dummy value to `.backlog-runner.env` (dotenv `NAME=value`) at the repo root and to your env template (`.env.example`), and lists the variable under **Production config needed** in the PR body: setting the real production value is your only step. The runner reads the file from the bot's branch for installs and gates. It can only add names: `extraTestEnv` and the test-service variables win on a clash, names that change how tools run (`PATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`, `npm_config_*`, …) are refused, and so are values that look like credentials; a refused entry fails the gates and goes to the fix agent. GitHub Actions doesn't see the file unless your workflow loads it. With the **Workflows** permission the bot adds this step itself, before the test step of any job that fails for a missing variable; without it, the bot blocks and asks you to add it:
+
+```yaml
+- run: '[ -f .backlog-runner.env ] && grep -E "^[A-Z_][A-Z0-9_]*=" .backlog-runner.env >> "$GITHUB_ENV" || true'
+```
+
 **Prompt overrides:** put `.backlog-runner/prompts/<name>.md` (`propose`, `review-proposal`, `revise-proposal`, `apply`, `fix`, `fix-ci`, `fix-review`, `validate-fix`, `triage`, `prd-to-backlog`) on the default branch to replace a built-in prompt. Templates use `{{VARIABLE}}` placeholders; see `src/prompts/`.
 
 **Project context:** agents read `openspec/config.yaml` (`context:`), and `openspec/project.md` if present.
@@ -287,12 +306,14 @@ In practice the percentages are often unknown until usage nears a threshold. The
 
 - **Two users.** `runner` holds the GitHub credentials, state and logs and does every GitHub write and `git push`. `agent` runs Claude, installs and gates (agent-written code) through `sudo -u agent env -i …`, so it sees only Claude's own auth and the test service URLs. It can't read the runner's environment, `/data/state`, logs or the App key.
 - **Structured outputs.** Agents end with stop-signal lines (`NEEDS_DECISION:`, `NEEDS_SPLIT:`, `BLOCKED:`) or return schema-validated JSON (triage, proposal review). The runner validates and applies them; only labels from the allowed set are ever applied, and `urgent` is never set or removed by the bot.
+- **Config from the default branch.** `.backlog-runner.json` and prompt overrides are only read from the default branch, so the agent can't change its gates, authors or tools. The exception is `.backlog-runner.env`, which only adds dummy test variables (see above) and shows in the PR diff.
+- **Workflows permission.** With it, a branch the bot pushes can change workflow files, and GitHub runs a same-repo PR's workflows with your Actions secrets. The prompts only let the agent add the `.backlog-runner.env` load step, but that's an instruction, not an enforced check: a prompt-injected or confused agent could change a workflow to leak secrets on its PR's CI run. Review every `.github/workflows/` change in a bot PR, keep Actions secrets to test-only values, or leave the permission off.
 - **Prompt-injection guard.** Only issues and comments by `allowedAuthors` (plus the bot's own issues and comments, such as triage split children) reach prompts or move state.
-- **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers, and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
+- **Egress firewall.** Default-deny (IPv4 and IPv6), modelled on Anthropic's devcontainer `init-firewall.sh`. Allowed: Anthropic API and auth hosts, Claude Code downloads, GitHub (published `/meta` ranges plus its content hosts), the npm registry, the health ping host, `EXTRA_ALLOWED_DOMAINS`, DNS to the configured resolvers (behind Docker's embedded DNS on compose networks, root alone may reach the host's upstream resolvers on port 53), and the sidecar network. The runner user alone may also reach GitHub's Actions log hosts (`productionresultssaN.blob.core.windows.net`); agent code can't. Verified at start (`example.com` must fail, the log hosts must fail for the agent user, GitHub and Anthropic must succeed) and re-resolved every 15 minutes. Claude jobs are refused unless the check passed. The runner process drops `NET_ADMIN`/`NET_RAW` before it starts.
 - **No repo-supplied hooks or MCP servers** in unattended runs (`--setting-sources user --strict-mcp-config`).
 - **Redaction** of tokens and keys in logs, comments, PR bodies and the digest.
 - The Docker socket is never mounted.
-- **Nothing listens in the container.** The [local UI](#local-ui) runs on the host, so agent-written code can't reach it. It binds to `127.0.0.1`, runs only a fixed list of commands, and refuses requests with a foreign `Host` or `Origin`.
+- **The [web UI](#web-ui) is off by default.** Nothing listens in the container unless `UI_TOKEN` is set. When it is, every request needs that password, which the agent user can't read, and only a fixed list of commands runs. POSTs with a foreign `Origin` are refused. The firewall rejects the agent user from the port, and if that rule can't be added the firewall check fails and Claude jobs are refused. The port is published on the host's `127.0.0.1` by default.
 
 ## Troubleshooting
 

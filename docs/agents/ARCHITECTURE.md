@@ -16,6 +16,7 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
 │            ├─ GitHub layer (GraphQL + REST via fetch; DRY_RUN → log only) │
 │            ├─ Digest (Discussions, batched per job)                       │
 │            ├─ UsageGauge · BudgetRules · RunWindows                       │
+│            ├─ UI (:8377, Basic auth) → spawns the CLI                     │
 │            └─ sudo -u agent → claude -p … / install / gates               │
 └───────────┬─────────────────────────────────────────────────────────────┘
             │ internal network `testnet` (no egress)
@@ -23,13 +24,14 @@ How the pieces fit and the mechanics the code alone doesn't explain. Read when a
    postgres-test     redis-test
 ```
 
-`src/` folders map one-to-one onto the boxes above. `ui/` sits outside the box and the image: a host-side page that drives the container through `docker compose exec` (ADR-0015).
+`src/` folders map one-to-one onto the boxes above.
 
 ## State
 
 - **GitHub is the source of truth.** `state:*` labels are the state machine (flow diagram in `README.md`).
 - **SQLite holds only runner-local facts:** job runs, usage readings, digest IDs, checkpoints, update history, caches, and the job lease.
 - **Project config is read from the target repo's default branch at job start**, never from a worktree, so agent edits can't change config or inject prompt overrides.
+- **The one worktree-read file is `.backlog-runner.env`** (ADR-0019): dummy test env the agent adds for its own code. `agentEnv(d, dir)` reads it fresh on every call and lays it *under* everything the runner sets; `runGates` fails on refused entries before running any gate.
 
 ## Job wrapper
 
@@ -55,13 +57,15 @@ Otherwise `sync` looks for new comments by `allowedAuthors` on the open implemen
 
 ## Gotchas
 
+- **The UI port is reachable from agent code unless blocked:** they share a network namespace, loopback included, so `init-firewall.sh` rejects the agent uid ahead of the loopback accept (ADR-0018). `UI_PORT` is set in both that script and `src/ui/server.ts`.
+- **UI commands are the daemon's children:** on shutdown they get SIGTERM so jobs can checkpoint, and share `stop_grace_period` with the daemon. Commands run through `docker compose exec` don't get this.
 - **CI logs need a firewall exception:** `/actions/jobs/{id}/logs` redirects to `productionresultssaN.blob.core.windows.net`, allowed for the runner uid only (ADR-0016). Annotations are reachable from anywhere but often say only `Process completed with exit code 1`.
 - **The end of a job log is cleanup, not the failure:** after a failed step, GitHub's "Stop containers" step prints each service container's whole log (hundreds of Postgres health-check lines). `failingStep()` keeps only the step from its `##[group]Run` line to the first `##[error]` before tailing it.
 - **Claude Code allowlist syntax** is `Bash(git diff *)` (space before `*`), not the older `Bash(git diff:*)`.
 - **`DISABLE_AUTOUPDATER=1`, never `DISABLE_UPDATES`**: the latter also blocks `claude update`/`claude install`, which the `update` job needs.
 - **An empty `--allowedTools` list makes the CLI reject the call.** Omit the flag instead.
 - **Agent umask:** sudo unions umasks, so `sudoers.agent` sets `umask=0002`; otherwise the runner can't commit or delete agent-written files.
-- **Firewall DNS** is allowed to the resolvers in `/etc/resolv.conf`, not just `127.0.0.11` (only present on user-defined networks).
+- **Firewall DNS** is allowed to the resolvers in `/etc/resolv.conf`, not just `127.0.0.11` (only present on user-defined networks). Behind `127.0.0.11`, Docker's embedded resolver forwards upstream from inside the container's network namespace as root (seen on engine 20.10), to host resolvers the container can't see, so port 53 to any address is open to uid 0 only. Docker may write its `127.0.0.11` NAT rules with iptables-legacy while the image uses nft; the nft flush leaves them in place, so the preservation step finding nothing is fine.
 - **Dry run covers git:** `DRY_RUN=1` also skips `git push` and remote branch deletion.
 - **Schedule overrides are read at daemon start**; changes need a restart.
 - **GitHub Discussions:** no title filter (page and match exactly, then cache the node ID); `replyToId` must be a top-level comment; no mutation creates categories.

@@ -18,6 +18,7 @@ IFS=$'\n\t'
 MODE=${1:-init}
 STATE_FILE=${FIREWALL_STATE_FILE:-/data/state/firewall.json}
 SET=allowed-domains
+UI_PORT=8377
 
 DOMAINS=(
   api.anthropic.com platform.claude.com claude.ai downloads.claude.ai storage.googleapis.com
@@ -142,6 +143,14 @@ init() {
     ip6tables -P INPUT DROP; ip6tables -P FORWARD DROP; ip6tables -P OUTPUT DROP
   fi
 
+  # The web UI (src/ui/server.ts). Agent code shares this network namespace, so the agent user is
+  # rejected first, ahead of the loopback rule. Required: without it the UI is open to agent code.
+  if [ -n "${UI_TOKEN:-}" ]; then
+    iptables -A OUTPUT -p tcp --dport "$UI_PORT" -m owner --uid-owner agent -j REJECT ||
+      fail "can't block the agent user from the UI port: unset UI_TOKEN to run without the UI"
+    iptables -A INPUT -p tcp --dport "$UI_PORT" -j ACCEPT
+  fi
+
   # Loopback, which also carries Docker's embedded DNS (127.0.0.11).
   iptables -A INPUT -i lo -j ACCEPT
   iptables -A OUTPUT -o lo -j ACCEPT
@@ -152,6 +161,13 @@ init() {
     iptables -A OUTPUT -p udp -d "$ns" --dport 53 -j ACCEPT
     iptables -A OUTPUT -p tcp -d "$ns" --dport 53 -j ACCEPT
   done < <(awk '$1 == "nameserver" && $2 ~ /^[0-9.]+$/ {print $2}' /etc/resolv.conf)
+  # On user-defined networks Docker's embedded DNS (127.0.0.11) forwards upstream from inside this
+  # network namespace as root, to the host's resolvers, whose addresses the container can't see.
+  # Root here is only tini, the entrypoint and the refresh loop; runner and agent never are.
+  if grep -qE '^nameserver[[:space:]]+127\.0\.0\.11$' /etc/resolv.conf; then
+    iptables -A OUTPUT -p udp --dport 53 -m owner --uid-owner 0 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 53 -m owner --uid-owner 0 -j ACCEPT
+  fi
 
   # Directly connected networks other than the one holding the default route: the sidecars.
   local egress_if net
