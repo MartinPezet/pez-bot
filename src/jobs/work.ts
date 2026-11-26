@@ -44,7 +44,7 @@ export async function work(d: Deps, o: { ignoreBudget: boolean }): Promise<JobRe
   const trusted = async (label: string) => partitionByAuthor(await d.gh.listIssues(label), d.project.allowedAuthors, d.botLogin).allowed
   const approved = await trusted('state:approved')
   const ready = (await trusted('state:ready')).filter(i => !i.labels.includes('type:spike'))
-  const next = pickNext(approved, ready, await d.gh.listPrs(), d.project.wip)
+  const next = pickNext(approved, ready, await d.gh.listPrs(), { prsInReview: d.env.MAX_PRS_IN_REVIEW })
   if (!next) return { outcome: 'noop', detail: 'queue empty or WIP limits reached' }
 
   if (!o.ignoreBudget) {

@@ -19,6 +19,7 @@ describe('env', () => {
     expect(r.value.USAGE_UNKNOWN_POLICY).toBe('allow')
     expect(r.value.CLAUDE_CHANNEL).toBe('stable')
     expect(r.value.WEEKLY_STOP_PCT).toBe(80)
+    expect(r.value.MAX_PRS_IN_REVIEW).toBe(3)
     expect(r.value.DRY_RUN).toBe(false)
     expect(r.value.RUN_WINDOWS).toBe('mon-fri 09:00-12:00; mon-fri 22:00-02:00')
     expect(r.value.EXTRA_ALLOWED_DOMAINS).toEqual([])
@@ -80,7 +81,6 @@ describe('project config', () => {
     const r = parseProjectConfig(JSON.stringify(minimalProject))
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.value.wip).toEqual({ prsInReview: 3 })
     expect(r.value.maxFixAttempts).toBe(2)
     expect(r.value.models.build).toBe('sonnet')
     expect(r.value.claude).toEqual({ maxTurns: 150, timeoutMin: 90, extraAllowedTools: [] })
@@ -89,7 +89,7 @@ describe('project config', () => {
     expect(r.value.models.review).toBe('sonnet')
   })
 
-  it('still loads a config with the retired wip.proposalsInReview', () => {
+  it('still loads a config with the retired wip fields', () => {
     expect(parseProjectConfig(JSON.stringify({ ...minimalProject, wip: { proposalsInReview: 3, prsInReview: 2 } })).ok).toBe(true)
   })
 

@@ -11,6 +11,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - `sync` sends implementation PRs back to build on failed CI (#19) and on new owner comments (#24, prompt `fix-review`). Neither seen working on real GitHub.
 - Run windows pace only the daemon (#26, merged): one-off CLI runs and UI buttons skip the window check but still pass the budget gate unless `--ignore-budget`.
 - PR #28, branch `feat/agent-proposal-review` (2026-11-19, ADR-0017): proposal PRs and `state:proposal-review` are gone. `propose` → reviewer agent (`review-proposal`, read-only, JSON verdict) → revise up to `maxFixAttempts` → spec pushed to `change/issue-N`, issue `approved` → build → implementation PR. Tested with fakes only; main merged in.
+- Branch `feat/wip-limit-env` (2026-11-26): WIP limit moved from `.backlog-runner.json` `wip.prsInReview` to env `MAX_PRS_IN_REVIEW` (default 3). Old `wip` fields still parse, ignored.
 
 ## Next steps
 
@@ -20,6 +21,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - earth-scope #74–77 (bot-authored split children of #71) should get triaged now that #25 is merged; check they land in `state:ready` or `state:needs-decision`.
 - Test the runner-only firewall rule (ADR-0016) in a real container: only syntax-checked so far. Expect `firewall: verified` with no `WARNING`.
 - Try `npm run ui` against the real container.
+- After deploying `feat/wip-limit-env`: any target repo whose `.backlog-runner.json` set `wip.prsInReview` to something other than 3 needs `MAX_PRS_IN_REVIEW` in its `.env`, or it silently drops to 3.
 
 ## Known issues
 

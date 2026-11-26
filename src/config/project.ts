@@ -44,10 +44,11 @@ export const projectSchema = z
       .object({
         /** Ignored: proposals no longer open PRs. Still accepted so older configs load. */
         proposalsInReview: z.number().int().min(1).optional(),
-        prsInReview: z.number().int().min(1).default(3),
+        /** Ignored: moved to the MAX_PRS_IN_REVIEW env var. Still accepted so older configs load. */
+        prsInReview: z.number().int().min(1).optional(),
       })
       .strict()
-      .prefault({}),
+      .optional(),
     maxFixAttempts: z.number().int().min(0).max(10).default(2),
     testServices: z
       .object({

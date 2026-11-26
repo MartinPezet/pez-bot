@@ -50,6 +50,8 @@ export const envSchema = z
     WINDOW_GRACE_MIN: int(20),
     URGENT_IGNORES_WINDOWS: bool(true),
     TZ: z.string().default('Europe/London'),
+    /** Open implementation PRs (plus approved items that will open one) before new builds and proposals stop. */
+    MAX_PRS_IN_REVIEW: int(3, 1),
     KEEP_BLOCKED_WORKTREES_DAYS: int(3),
     RETENTION_DAYS: int(14, 1),
     MIN_FREE_DISK_GB: int(10),
