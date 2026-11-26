@@ -225,7 +225,7 @@ Account-level settings live in `.env`, not in project config, because the usage 
 | `DIGEST_CATEGORY` | `Daily Digest` | Discussion category (Announcement format). |
 | `DIGEST_AUTO_CREATE` | `false` | Let the bot create the project's discussion. |
 | `DRY_RUN` | `0` | Log GitHub writes and pushes instead of doing them. |
-| `PERMISSION_MODE` | `acceptEdits` | Claude permission mode. `bypassPermissions` is only used behind a verified firewall (all Claude jobs require one). |
+| `PERMISSION_MODE` | `acceptEdits` | Claude permission mode. `acceptEdits` applies the per-job tool allowlist; a build that needs another command blocks, and you add it to `claude.extraAllowedTools`. `bypassPermissions` skips the allowlist and is only used behind a verified firewall (all Claude jobs require one). Avoid `auto`: Claude Code's own classifier then refuses actions it rates risky, including commits to `.github/` and `infra/`, so infra tickets can't commit their CI changes. |
 | `USAGE_PROBE` | `on` | Actively probe usage when there's no fresh reading. |
 | `USAGE_MAX_AGE_MIN` | `30` | How fresh a usage reading must be; also the minimum time between probes. |
 | `USAGE_UNKNOWN_POLICY` | `allow` | With no fresh reading and a failed probe: `allow` (run, and report it in the digest) or `block`. |
@@ -318,6 +318,8 @@ In practice the percentages are often unknown until usage nears a threshold. The
 ## Troubleshooting
 
 **An item is `state:blocked`.** The latest bot comment says why; a draft PR holds any partial work, and its worktree is kept for `KEEP_BLOCKED_WORKTREES_DAYS` under the `worktrees` volume. Fix or answer, then relabel `state:ready` (re-propose) or `state:approved` (re-build; it resumes from `change/issue-N` if that branch exists). If the default branch itself is red, every build blocks: fix main first.
+
+**A block comment says "Couldn't push the partial work".** The work exists only in that worktree, and a re-run replaces it. The comment quotes GitHub's error. The usual one, `without workflows permission`, means the branch changes `.github/workflows/` and the App's installation doesn't have **Workflows** yet: add it to the App, then accept it on the installation (Settings → Applications → Installed GitHub Apps).
 
 **An item is stuck in `state:proposal-review`.** That state was retired (ADR-0017), so the runner no longer looks at it. Merge or close any open proposal PRs while an older image is still deployed so it can promote them, or relabel the issue by hand: `state:approved` if the proposal is already on the default branch, otherwise `state:ready`.
 

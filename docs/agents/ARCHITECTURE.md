@@ -45,6 +45,8 @@ Every job runs through one wrapper: take the lease → insert a `job_runs` row �
 
 The Claude wrapper watches the stream-json output. On `rate_limit_event.status == "rejected"`, window end + grace, or SIGTERM, it sends **SIGINT** (clean turn end), then SIGTERM after 30 s. SIGTERM alone exits 143 with no result. The runner then commits leftovers as `wip: checkpoint …`, pushes `change/issue-N` (build only; a propose just re-runs), returns the issue to `approved`/`ready`, writes `checkpoints` + `paused_until`, and posts to the digest. The next build finds the branch and resumes.
 
+The agent's own `git commit` can be refused by Claude Code's permission layer: under `PERMISSION_MODE=auto` its classifier refused commits to `.github/` and `infra/` (earth-scope #74). The prompts tell it to leave such edits uncommitted rather than block: the build always commits leftovers as `chore: runner leftovers` before pushing. `block()` quotes a failed push in its comment, because the work then exists only in the kept worktree.
+
 ## Stop signals
 
 Agents end with `NEEDS_DECISION:`, `NEEDS_SPLIT:` or `BLOCKED:`. The parser takes the **last** match in the final result text (multiline `^(NEEDS_DECISION|NEEDS_SPLIT|BLOCKED):\s*(.*)`), because agents sometimes quote the protocol earlier. Triage instead returns `--json-schema` output, re-validated with zod.

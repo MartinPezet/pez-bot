@@ -317,6 +317,25 @@ describe('build', () => {
     expect(h.claude.calls).toHaveLength(3)
   })
 
+  it('says in the block comment when the partial work could not be pushed', async () => {
+    const h = harness()
+    approvedIssue(h)
+    h.wt.push = async () => {
+      throw new Error('refusing to allow a GitHub App to create or update workflow `.github/workflows/ci.yml` without `workflows` permission')
+    }
+    h.claude.then(req => {
+      applyCommits(h)(req)
+      return { text: 'BLOCKED: need a decision' }
+    })
+    const r = await work(h.deps, { ignoreBudget: false })
+    expect(r).toMatchObject({ outcome: 'blocked', keepWorktree: true })
+    expect(h.gh.prs).toHaveLength(0)
+    const body = (h.gh.comments.get(9) ?? []).at(-1)?.body ?? ''
+    expect(body).toContain("Couldn't push the partial work")
+    expect(body).toContain('without `workflows` permission')
+    expect(body).not.toContain('Partial work: ')
+  })
+
   it('resumes a paused branch after merging the default branch in', async () => {
     const h = harness()
     approvedIssue(h)

@@ -262,11 +262,14 @@ export async function block(d: Deps, issue: Issue, reason: string, dir?: string,
     const url = await pushAndOpenPr(
       d, dir, branch, `WIP: ${issue.title} (#${issue.number})`,
       `Partial work: the runner is blocked. See #${issue.number}.\n\nRefs #${issue.number}`, true,
-    ).catch(e => {
+    ).catch((e: unknown) => {
       d.log.error({ err: e }, 'could not push partial work')
-      return ''
+      return e instanceof Error ? e : new Error(String(e))
     })
-    if (url) extra = `\n\nPartial work: ${url}`
+    // A failed push leaves the work only in this worktree, so the comment has to say so.
+    extra = typeof url === 'string'
+      ? `\n\nPartial work: ${url}`
+      : `\n\n⚠️ **Couldn't push the partial work**, so it exists only in the runner's worktree \`${dir}\` (kept ${d.env.KEEP_BLOCKED_WORKTREES_DAYS} days; a re-run replaces it). Push error:\n\`\`\`\n${tail(url.message, 20)}\n\`\`\``
   }
   await setState(d.gh, issue, 'state:blocked')
   await d.gh.comment(
