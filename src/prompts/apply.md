@@ -29,6 +29,7 @@ For each unchecked task in `tasks.md`:
 - Never run `git push`, switch branches, or rewrite history.
 - Tests run against the local test database and Redis given in the environment, never anything else.
 - If the spec is wrong, contradicts the codebase, or needs a product decision: stop, commit what you have, and end your final message with a line starting `BLOCKED:` followed by the specific question.
+- If your tools refuse a `git commit` (a permission or safety check, not a hook or a test failure), don't stop and don't look for another way to commit: leave those changes in the working tree and carry on. The runner commits whatever is left uncommitted when you finish and pushes it with the rest. Name those paths in your final message. A refused commit is never a reason for `BLOCKED:`.
 
 ## Finish
 

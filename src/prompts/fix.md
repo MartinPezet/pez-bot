@@ -16,7 +16,7 @@ The runner already compared this output with the default branch. Only these fail
 
 Failures not listed there exist on `origin/{{DEFAULT_BRANCH}}` too: leave them alone. Fix only the new ones.
 
-Find the root cause and fix it (use the systematic-debugging skill if available). Same rules as the implementation run: stay in scope, never weaken tests or lint rules, never push. Commit the fix as `fix(<scope>): <summary> (#{{ISSUE_NUMBER}})`.
+Find the root cause and fix it (use the systematic-debugging skill if available). Same rules as the implementation run: stay in scope, never weaken tests or lint rules, never push. Commit the fix as `fix(<scope>): <summary> (#{{ISSUE_NUMBER}})`. If your tools refuse a `git commit` (a permission or safety check, not a hook or a test failure), don't stop and don't look for another way to commit: leave those changes in the working tree and carry on. The runner commits whatever is left uncommitted when you finish and pushes it with the rest. Name those paths in your final message.
 
 If a failure is a missing environment variable that this change's code now reads, add it with a dummy value to `.backlog-runner.env` at the repo root and to the committed env template (`.env.example` or similar), rather than stopping. The runner loads that file into the gates; it never overrides variables the runner sets.
 

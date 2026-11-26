@@ -319,6 +319,8 @@ In practice the percentages are often unknown until usage nears a threshold. The
 
 **An item is `state:blocked`.** The latest bot comment says why; a draft PR holds any partial work, and its worktree is kept for `KEEP_BLOCKED_WORKTREES_DAYS` under the `worktrees` volume. Fix or answer, then relabel `state:ready` (re-propose) or `state:approved` (re-build; it resumes from `change/issue-N` if that branch exists). If the default branch itself is red, every build blocks: fix main first.
 
+**A block comment says "Couldn't push the partial work".** The work exists only in that worktree, and a re-run replaces it. The comment quotes GitHub's error. The usual one, `without workflows permission`, means the branch changes `.github/workflows/` and the App's installation doesn't have **Workflows** yet: add it to the App, then accept it on the installation (Settings → Applications → Installed GitHub Apps).
+
 **An item is stuck in `state:proposal-review`.** That state was retired (ADR-0017), so the runner no longer looks at it. Merge or close any open proposal PRs while an older image is still deployed so it can promote them, or relabel the issue by hand: `state:approved` if the proposal is already on the default branch, otherwise `state:ready`.
 
 **The firewall check fails.** `status` and the logs show the reason (also in the digest). Typical causes:
