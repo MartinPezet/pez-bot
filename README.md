@@ -236,6 +236,7 @@ Account-level settings live in `.env`, not in project config, because the usage 
 | `WINDOW_GRACE_MIN` | `20` | A job still running this long after its window closes is checkpointed. |
 | `URGENT_IGNORES_WINDOWS` | `true` | `urgent` issues may start outside windows. |
 | `TZ` | `Europe/London` | Process time zone; the project's `timezone` drives windows and the digest. |
+| `MAX_PRS_IN_REVIEW` | `3` | Open implementation PRs, plus approved items that will open one, before the runner stops starting new builds and proposals. `urgent` doesn't bypass it. |
 | `KEEP_BLOCKED_WORKTREES_DAYS` | `3` | Keep a blocked job's worktree this long for inspection. |
 | `RETENTION_DAYS` | `14` | Logs, transcripts and usage readings older than this are deleted. |
 | `MIN_FREE_DISK_GB` | `10` | Disk guard threshold. |
@@ -261,7 +262,7 @@ Read from the target repo's default branch before every job and validated strict
 | `install` | required | Install command, for example `["pnpm","install","--frozen-lockfile"]`. |
 | `gates` | required | Commands that must pass, in order, for example `[["pnpm","typecheck"],["pnpm","lint"],["pnpm","test"]]`. |
 | `areas` | required | Allowed `area:` labels (lower-kebab-case). |
-| `wip.prsInReview` | `3` | Open implementation PRs, plus approved items that will open one, before the runner stops starting new builds and proposals. `urgent` doesn't bypass it. `wip.proposalsInReview` is retired: still accepted, ignored. |
+| `wip` | | Retired: the limit is now the `MAX_PRS_IN_REVIEW` env var. `wip.prsInReview` and `wip.proposalsInReview` are still accepted and ignored. |
 | `maxFixAttempts` | `2` | Fix rounds after failing gates, revisions after a proposal review finds gaps, and separately how many times a PR that failed CI goes back to build. `0` blocks on the first CI failure. |
 | `testServices.postgres` | | `{ "version": "16", "env": "DATABASE_URL", "database": "app_test", "schema": "public" }`: the URL variable gates receive, and what's reset (schema dropped and recreated) before every build's gates. Optional `vars` also hands out the parts separately, for apps that don't read a URL: `{ "host": "DB_HOST", "port": "DB_PORT", "user": "DB_USER", "password": "DB_PASSWORD", "database": "DB_DATABASE" }` (any subset). |
 | `testServices.redis` | | `{ "version": "7", "env": "REDIS_URL" }`: flushed before every build's gates. Optional `vars`: `{ "host": …, "port": …, "password": … }`. |

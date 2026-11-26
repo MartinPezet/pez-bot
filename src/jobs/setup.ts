@@ -45,7 +45,6 @@ export function configTemplate(repo: string, commands: Commands = DEFAULT_COMMAN
       install: commands.install,
       gates: commands.gates,
       areas: ['core'],
-      wip: { prsInReview: 3 },
       maxFixAttempts: 2,
       testServices: {
         postgres: { version: '16', env: 'DATABASE_URL', database: 'app_test', schema: 'public' },

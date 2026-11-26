@@ -11,6 +11,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - Earth Scope (2026-11-25): 1 ticket done (#80, PR #83). The rest wait on the owner: #75, #76, #87–#94 `needs-decision`; #37 / PR #85 blocked on a question (change-plan hook); #21 / PR #72 blocked on E2E; #74 blocked because Stripe env vars weren't in the gate env; #77, #86 depend on #74/#91.
 - PR #30, branch `feat/branch-test-env` (ADR-0019): the agent commits dummy test env to `.backlog-runner.env` on its branch; gates load it add-only, reserved names and credential-looking values refused. Prompts also update `.env.example` and list "Production config needed" in the PR body. Tested with fakes only.
 - Owner added the **Workflows** permission to the earth-scope App (2026-11-25; whether the installation accepted it is not verified). Prompts now let the agent add the `.backlog-runner.env` load step to CI workflows itself, and nothing else; that limit isn't enforced by the runner, so workflow edits in bot PRs need review.
+- Branch `feat/wip-limit-env` (2026-11-26): WIP limit moved from `.backlog-runner.json` `wip.prsInReview` to env `MAX_PRS_IN_REVIEW` (default 3). Old `wip` fields still parse, ignored.
 
 ## Next steps
 
@@ -18,6 +19,7 @@ Active memory across sessions. Rewritten at the end of every session that change
 - Relabel earth-scope #21 `state:pr-review` (not `approved`) so sync sends the Playwright failure to fix-ci; answer #37 on the issue.
 - On the server: `docker compose exec runner cat /data/state/firewall.json` (`ok: false` means jobs were refused before #29); set `UI_TOKEN` and check the UI end to end, including the README's agent-block `curl`.
 - Test the runner-only firewall rule (ADR-0016) in a real container; expect `firewall: verified` with no `WARNING`.
+- After deploying `feat/wip-limit-env`: any target repo whose `.backlog-runner.json` set `wip.prsInReview` to something other than 3 needs `MAX_PRS_IN_REVIEW` in its `.env`, or it silently drops to 3.
 
 ## Known issues
 
