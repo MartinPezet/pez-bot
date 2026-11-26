@@ -225,7 +225,7 @@ Account-level settings live in `.env`, not in project config, because the usage 
 | `DIGEST_CATEGORY` | `Daily Digest` | Discussion category (Announcement format). |
 | `DIGEST_AUTO_CREATE` | `false` | Let the bot create the project's discussion. |
 | `DRY_RUN` | `0` | Log GitHub writes and pushes instead of doing them. |
-| `PERMISSION_MODE` | `acceptEdits` | Claude permission mode. `bypassPermissions` is only used behind a verified firewall (all Claude jobs require one). |
+| `PERMISSION_MODE` | `acceptEdits` | Claude permission mode. `acceptEdits` applies the per-job tool allowlist; a build that needs another command blocks, and you add it to `claude.extraAllowedTools`. `bypassPermissions` skips the allowlist and is only used behind a verified firewall (all Claude jobs require one). Avoid `auto`: Claude Code's own classifier then refuses actions it rates risky, including commits to `.github/` and `infra/`, so infra tickets can't commit their CI changes. |
 | `USAGE_PROBE` | `on` | Actively probe usage when there's no fresh reading. |
 | `USAGE_MAX_AGE_MIN` | `30` | How fresh a usage reading must be; also the minimum time between probes. |
 | `USAGE_UNKNOWN_POLICY` | `allow` | With no fresh reading and a failed probe: `allow` (run, and report it in the digest) or `block`. |
