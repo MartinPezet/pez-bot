@@ -60,6 +60,31 @@ describe('HttpGitHub', () => {
       url: 'https://github.com/acme/app/pull/7',
     })
     expect(calls[1]?.url).toContain('head=acme%3Achange%2Fissue-1')
+    expect(calls[2]).toMatchObject({ method: 'PATCH', url: expect.stringContaining('/pulls/7'), body: { title: 't', body: 'b' } })
+    expect(calls).toHaveLength(3)
+  })
+
+  it('marks a reused WIP draft ready when the new PR is not a draft', async () => {
+    const { fn, calls } = fakeFetch(c =>
+      c.method === 'POST' && !c.url.endsWith('/graphql')
+        ? { status: 422, text: '{"message":"A pull request already exists for acme:change/issue-1."}' }
+        : c.url.endsWith('/graphql')
+          ? { json: { data: { markPullRequestReadyForReview: { clientMutationId: null } } } }
+          : { json: [{ number: 7, draft: true, node_id: 'PR_x', html_url: 'u' }] },
+    )
+    await gh(fn).openPr({ head: 'change/issue-1', base: 'main', title: 'Fix (#1)', body: 'Closes #1' })
+    expect(calls[2]?.body).toEqual({ title: 'Fix (#1)', body: 'Closes #1' })
+    expect(calls[3]).toMatchObject({ url: expect.stringContaining('/graphql'), body: { variables: { id: 'PR_x' } } })
+  })
+
+  it('leaves an existing PR untouched when opening a WIP draft', async () => {
+    const { fn, calls } = fakeFetch(c =>
+      c.method === 'POST'
+        ? { status: 422, text: '{"message":"A pull request already exists for acme:change/issue-1."}' }
+        : { json: [{ number: 7, html_url: 'u' }] },
+    )
+    await gh(fn).openPr({ head: 'change/issue-1', base: 'main', title: 'WIP', body: 'Refs #1', draft: true })
+    expect(calls).toHaveLength(2)
   })
 
   it('redacts secrets in comment bodies before sending', async () => {

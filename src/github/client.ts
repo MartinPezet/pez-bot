@@ -125,6 +125,7 @@ interface RestPull {
   closed_at: string | null
   created_at: string
   draft?: boolean
+  node_id?: string
   html_url: string
   head: { ref: string }
 }
@@ -338,6 +339,21 @@ export class HttpGitHub implements GitHub {
       const open = await this.rest<RestPull[]>('GET', `${this.base}/pulls?state=open&head=${encodeURIComponent(`${this.owner}:${p.head}`)}`)
       const existing = open[0]
       if (!existing) throw e
+      // A blocked run's WIP draft ("Refs #N") is reused by the next build: give it this run's title
+      // and body, or it merges without "Closes #N" and the issue stays open. A WIP (draft) open
+      // leaves an existing PR as it is, so a block can't strip a real PR's "Closes #N".
+      if (!p.draft) {
+        await this.rest('PATCH', `${this.base}/pulls/${existing.number}`, {
+          title: redactor.string(p.title),
+          body: redactor.string(p.body),
+        })
+        if (existing.draft && existing.node_id) {
+          await this.graphql(
+            'mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId } }',
+            { id: existing.node_id },
+          )
+        }
+      }
       return { number: existing.number, url: existing.html_url }
     }
   }
